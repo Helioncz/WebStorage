@@ -1,0 +1,32 @@
+[package]
+name = "project-hangar"
+version = "0.1.0"
+description = "Project Hangar - lokalni spravce projektu"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "project_hangar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Sifrovana SQLite (SQLCipher) - kompiluje se staticky, zadne systemove zavislosti
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl"] }
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["clock"] }
+thiserror = "1"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
