@@ -963,6 +963,61 @@ fn open_external_url(url: String) -> Result<(), String> {
     tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
+// ----------------------------- AI asistent -------------------------------
+// Provider-agnosticka: Rust jen prepošle HTTP POST (obejde CORS webview),
+// klic se uklada sifrovane v trezoru. Agentni smycka bezi ve frontendu.
+
+/// Genericky HTTP POST na AI API. Vraci { status, body } i pro 4xx/5xx.
+#[tauri::command]
+fn ai_http_post(
+    url: String,
+    headers: std::collections::HashMap<String, String>,
+    body: String,
+) -> Result<Value, String> {
+    let mut req = ureq::post(&url).timeout(std::time::Duration::from_secs(180));
+    for (k, v) in &headers {
+        req = req.set(k, v);
+    }
+    match req.send_string(&body) {
+        Ok(r) => {
+            let status = r.status();
+            let text = r.into_string().map_err(|e| e.to_string())?;
+            Ok(serde_json::json!({ "status": status, "body": text }))
+        }
+        Err(ureq::Error::Status(code, r)) => {
+            let text = r.into_string().unwrap_or_default();
+            Ok(serde_json::json!({ "status": code, "body": text }))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Konfigurace AI (provider, base URL, model, klic) — ulozeno sifrovane v trezoru.
+#[tauri::command]
+fn get_ai_config(state: State<AppState>) -> Value {
+    let g = state.inner.lock().unwrap();
+    if let Some(conn) = g.conn.as_ref() {
+        if let Some(raw) = get_setting_kv(conn, "ai_config") {
+            if let Ok(v) = serde_json::from_str::<Value>(&raw) {
+                return v;
+            }
+        }
+    }
+    serde_json::json!({
+        "provider": "anthropic",
+        "baseUrl": "https://api.anthropic.com",
+        "model": "claude-opus-4-8",
+        "apiKey": ""
+    })
+}
+
+#[tauri::command]
+fn set_ai_config(config: Value, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, "ai_config", &config.to_string())
+}
+
 // ----------------------------- Bootstrap ---------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1038,6 +1093,9 @@ pub fn run() {
             get_deploy_url,
             set_deploy_url,
             open_external_url,
+            ai_http_post,
+            get_ai_config,
+            set_ai_config,
         ])
         .run(tauri::generate_context!())
         .expect("chyba pri spousteni Tauri aplikace");

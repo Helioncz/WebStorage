@@ -31,6 +31,8 @@ thiserror = "1"
 tiny_http = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 walkdir = "2"
+# HTTP klient pro proxy na AI API (obchazi CORS webview, klic zustava v backendu)
+ureq = { version = "2", features = ["json"] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

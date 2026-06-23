@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, Row } from "../lib/api";
 import { Modal } from "./Modal";
+import AiPanel from "./AiPanel";
 
 export default function Sites() {
   const [root, setRoot] = useState("");
@@ -150,6 +151,7 @@ function SiteDetail({ rel, isTemplate, onBack, onUse }: { rel: string; isTemplat
   const [status, setStatus] = useState<string | null>(null);
   const [deployUrl, setDeployUrl] = useState("");
   const [editingDeploy, setEditingDeploy] = useState(false);
+  const [rightMode, setRightMode] = useState<"info" | "ai">("info");
 
   useEffect(() => {
     api.sitePreviewUrl(rel).then(setUrl);
@@ -193,6 +195,11 @@ function SiteDetail({ rel, isTemplate, onBack, onUse }: { rel: string; isTemplat
           <button className="ghost" onClick={() => setReloadKey((k) => k + 1)}>⟳ Obnovit</button>
           <button className="ghost" onClick={() => api.openSiteFolder(rel)}>Složka</button>
           <button className="ghost" onClick={downloadZip}>⬇ ZIP</button>
+          {!isTemplate && (
+            <button className={rightMode === "ai" ? "primary" : "ghost"} onClick={() => setRightMode((m) => (m === "ai" ? "info" : "ai"))}>
+              💬 AI
+            </button>
+          )}
           {isTemplate
             ? <button className="primary" onClick={() => onUse({ rel, slug, title: undefined } as any)}>Použít šablonu</button>
             : <button className="primary" onClick={openLive}>🌍 Otevřít živý web</button>}
@@ -220,7 +227,9 @@ function SiteDetail({ rel, isTemplate, onBack, onUse }: { rel: string; isTemplat
         </div>
 
         <div className="preview-side">
-          {isTemplate ? (
+          {!isTemplate && rightMode === "ai" ? (
+            <AiPanel rel={rel} onFileWritten={() => { setReloadKey((k) => k + 1); api.listSiteFiles(rel).then(setFiles); }} />
+          ) : isTemplate ? (
             <div className="card">
               <strong>Šablona</strong>
               <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>

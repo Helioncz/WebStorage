@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type Project = Record<string, any>;
 export type Row = Record<string, any>;
+export type AiConfig = { provider: string; baseUrl: string; model: string; apiKey: string };
 
 export const api = {
   // Vault
@@ -98,6 +99,12 @@ export const api = {
   getDeployUrl: (rel: string) => invoke<string | null>("get_deploy_url", { rel }),
   setDeployUrl: (rel: string, url: string) => invoke<void>("set_deploy_url", { rel, url }),
   openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
+
+  // AI asistent
+  getAiConfig: () => invoke<AiConfig>("get_ai_config"),
+  setAiConfig: (config: AiConfig) => invoke<void>("set_ai_config", { config }),
+  aiHttpPost: (url: string, headers: Record<string, string>, body: string) =>
+    invoke<{ status: number; body: string }>("ai_http_post", { url, headers, body }),
 
   // Historie, hledani, dashboard
   listEvents: (projectId: string) => invoke<Row[]>("list_events", { projectId }),
