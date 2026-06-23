@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type View = "dashboard" | "project";
+type View = "dashboard" | "project" | "sites";
 
 interface AppStore {
   unlocked: boolean;
@@ -11,6 +11,7 @@ interface AppStore {
   selectedProjectId: string | null;
   openProject: (id: string) => void;
   openDashboard: () => void;
+  openSites: () => void;
   refreshKey: number;
   refresh: () => void;
 }
@@ -33,6 +34,7 @@ export const useStore = create<AppStore>((set) => ({
   selectedProjectId: null,
   openProject: (id) => set({ view: "project", selectedProjectId: id }),
   openDashboard: () => set({ view: "dashboard", selectedProjectId: null }),
+  openSites: () => set({ view: "sites", selectedProjectId: null }),
   refreshKey: 0,
   refresh: () => set((s) => ({ refreshKey: s.refreshKey + 1 })),
 }));

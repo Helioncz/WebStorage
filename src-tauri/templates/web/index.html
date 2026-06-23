@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<!--
+  ŠABLONA WEBU — startovací kód
+  Vyplň placeholdery {{ }} a uprav sekce. Barvy a fonty jsou v styles.css (:root).
+-->
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{NÁZEV FIRMY}} — {{slogan}}</title>
+  <meta name="description" content="{{Krátký popis firmy pro vyhledávače, ~150 znaků.}}" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <header class="site-header" id="top">
+    <div class="container nav">
+      <a href="#top" class="logo">{{NÁZEV FIRMY}}</a>
+      <nav class="main-nav" id="mainNav">
+        <a href="#sluzby">Služby</a>
+        <a href="#onas">O nás</a>
+        <a href="#kontakt">Kontakt</a>
+        <a href="#kontakt" class="btn btn-primary nav-cta">Nezávazná poptávka</a>
+      </nav>
+      <button class="burger" id="burger" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <span class="eyebrow">{{Obor / claim}}</span>
+      <h1>{{Hlavní nadpis, který vystihne hodnotu}}</h1>
+      <p class="lead">{{Doplňující odstavec — co děláte a pro koho, jednou až dvěma větami.}}</p>
+      <div class="hero-actions">
+        <a href="#kontakt" class="btn btn-primary btn-lg">{{Hlavní akce}}</a>
+        <a href="#sluzby" class="btn btn-ghost btn-lg">Naše služby</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="sluzby">
+    <div class="container">
+      <div class="section-head">
+        <span class="eyebrow">Co děláme</span>
+        <h2>Naše služby</h2>
+      </div>
+      <div class="cards">
+        <article class="card">
+          <div class="card-ico">①</div>
+          <h3>{{Služba 1}}</h3>
+          <p>{{Stručný popis služby a přínos pro klienta.}}</p>
+        </article>
+        <article class="card">
+          <div class="card-ico">②</div>
+          <h3>{{Služba 2}}</h3>
+          <p>{{Stručný popis služby a přínos pro klienta.}}</p>
+        </article>
+        <article class="card">
+          <div class="card-ico">③</div>
+          <h3>{{Služba 3}}</h3>
+          <p>{{Stručný popis služby a přínos pro klienta.}}</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-soft" id="onas">
+    <div class="container about">
+      <div>
+        <span class="eyebrow">O nás</span>
+        <h2>{{Nadpis o firmě}}</h2>
+        <p>{{Odstavec o firmě — historie, hodnoty, čím se lišíte.}}</p>
+        <ul class="check">
+          <li>{{Výhoda 1}}</li>
+          <li>{{Výhoda 2}}</li>
+          <li>{{Výhoda 3}}</li>
+        </ul>
+      </div>
+      <div class="stats">
+        <div class="stat-box"><strong>{{10+}}</strong><span>{{let zkušeností}}</span></div>
+        <div class="stat-box"><strong>{{500+}}</strong><span>{{zakázek}}</span></div>
+        <div class="stat-box"><strong>{{98 %}}</strong><span>{{spokojenost}}</span></div>
+        <div class="stat-box"><strong>{{24/7}}</strong><span>{{podpora}}</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="kontakt">
+    <div class="container contact">
+      <div class="contact-info">
+        <span class="eyebrow">Kontakt</span>
+        <h2>Napište nám</h2>
+        <ul class="contact-list">
+          <li>📍 {{Ulice 1, 000 00 Město}}</li>
+          <li>✉️ <a href="mailto:info@firma.cz">{{info@firma.cz}}</a></li>
+          <li>📞 <a href="tel:+420000000000">{{+420 000 000 000}}</a></li>
+        </ul>
+      </div>
+      <form class="contact-form" id="contactForm" novalidate>
+        <label>Jméno<input type="text" name="name" required /></label>
+        <label>E-mail<input type="email" name="email" required /></label>
+        <label>Zpráva<textarea name="message" rows="4" required></textarea></label>
+        <button type="submit" class="btn btn-primary btn-lg">Odeslat</button>
+        <p class="form-note" id="formNote" hidden>Děkujeme! Ozveme se vám co nejdříve.</p>
+      </form>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span>© <span id="year"></span> {{NÁZEV FIRMY}}. Všechna práva vyhrazena.</span>
+      <a href="#top">Nahoru ↑</a>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

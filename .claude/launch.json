@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "website",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["website/serve.mjs"],
+      "port": 5500
+    },
+    {
+      "name": "sites",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["sites/serve.mjs"],
+      "port": 5510
+    },
+    {
+      "name": "templates",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["site-templates/serve.mjs"],
+      "port": 5520
+    }
+  ]
+}

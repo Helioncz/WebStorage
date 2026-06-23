@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { api, Project, Row } from "../lib/api";
 import { useStore } from "../store/useStore";
 import { STATUS_COLOR } from "./Sidebar";
+import { Modal, confirmDialog } from "./Modal";
 
 const TABS = ["Přehled", "Soubory", "Poznámky", "Odkazy", "Přístupy", "Úkoly", "Historie"] as const;
 type Tab = (typeof TABS)[number];
@@ -45,7 +47,13 @@ export default function ProjectDetail({ projectId }: { projectId: string }) {
             <button
               className="danger"
               onClick={async () => {
-                if (confirm("Smazat projekt včetně všeho obsahu?")) {
+                const ok = await confirmDialog({
+                  title: "Smazat projekt?",
+                  message: `Projekt „${project.name}" a veškerý jeho obsah (soubory, poznámky, přístupy, úkoly) budou nenávratně smazány.`,
+                  confirmLabel: "Smazat projekt",
+                  danger: true,
+                });
+                if (ok) {
                   await api.deleteProject(projectId);
                   useStore.getState().openDashboard();
                   refresh();
@@ -169,29 +177,62 @@ function Overview({ project, onSaved }: { project: Project; onSaved: () => void 
 
 function Files({ projectId }: { projectId: string }) {
   const [files, setFiles] = useState<Row[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [busy, setBusy] = useState(false);
   const load = () => api.listFiles(projectId).then(setFiles);
   useEffect(() => {
     load();
   }, [projectId]);
 
-  const importFiles = async () => {
+  const importPaths = async (paths: string[]) => {
+    if (!paths.length) return;
+    setBusy(true);
+    try {
+      for (const p of paths) await api.importFile(projectId, p);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Nativni drag & drop souboru z Finderu (Tauri webview event).
+  useEffect(() => {
+    const unlistenP = getCurrentWebview().onDragDropEvent((event) => {
+      const t = event.payload.type;
+      if (t === "over" || t === "enter") setDragOver(true);
+      else if (t === "leave") setDragOver(false);
+      else if (t === "drop") {
+        setDragOver(false);
+        importPaths(event.payload.paths);
+      }
+    });
+    return () => {
+      unlistenP.then((f) => f());
+    };
+  }, [projectId]);
+
+  const pickFiles = async () => {
     const selected = await open({ multiple: true });
     if (!selected) return;
     const paths = Array.isArray(selected) ? selected : [selected];
-    for (const p of paths) await api.importFile(projectId, p as string);
-    load();
+    importPaths(paths as string[]);
   };
 
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Soubory</strong>
-        <button className="primary" onClick={importFiles}>
-          + Importovat soubory
+        <button className="primary" onClick={pickFiles} disabled={busy}>
+          {busy ? "Importuji…" : "+ Importovat soubory"}
         </button>
       </div>
+
+      <div className={"dropzone" + (dragOver ? " over" : "")}>
+        {dragOver ? "Pusť soubory sem…" : "Přetáhni soubory z Finderu sem (drag & drop)"}
+      </div>
+
       {files.length === 0 ? (
-        <div className="muted">Žádné soubory. Importuj přes tlačítko nahoře.</div>
+        <div className="muted">Zatím žádné soubory.</div>
       ) : (
         files.map((f) => (
           <div key={f.id} className="list-item">
@@ -201,7 +242,21 @@ function Files({ projectId }: { projectId: string }) {
             </span>
             <span className="spacer" />
             <span className="muted">{(f.size / 1024).toFixed(0)} kB</span>
-            <button className="ghost danger" onClick={async () => { await api.deleteFile(f.id); load(); }}>
+            <button
+              className="ghost danger"
+              onClick={async () => {
+                const ok = await confirmDialog({
+                  title: "Smazat soubor?",
+                  message: f.name,
+                  confirmLabel: "Smazat",
+                  danger: true,
+                });
+                if (ok) {
+                  await api.deleteFile(f.id);
+                  load();
+                }
+              }}
+            >
               ✕
             </button>
           </div>
@@ -277,7 +332,13 @@ function Notes({ projectId }: { projectId: string }) {
             </span>
             <span className="spacer" />
             <span className="muted">{(n.updated_at || "").slice(0, 10)}</span>
-            <button className="ghost danger" onClick={async () => { await api.deleteNote(n.id); load(); }}>
+            <button
+              className="ghost danger"
+              onClick={async () => {
+                const ok = await confirmDialog({ title: "Smazat poznámku?", message: n.title, confirmLabel: "Smazat", danger: true });
+                if (ok) { await api.deleteNote(n.id); load(); }
+              }}
+            >
               ✕
             </button>
           </div>
@@ -289,27 +350,32 @@ function Notes({ projectId }: { projectId: string }) {
 
 // ----------------------------- Odkazy ------------------------------------
 
+const LINK_TYPES = [
+  ["", "—"],
+  ["web", "Web"],
+  ["admin", "Administrace"],
+  ["staging", "Testovací / staging"],
+  ["git", "Git repozitář"],
+  ["hosting", "Hosting"],
+  ["ftp", "FTP"],
+  ["cloud", "Cloud složka"],
+  ["api", "API dokumentace"],
+  ["monitoring", "Monitoring"],
+] as const;
+
 function Links({ projectId }: { projectId: string }) {
   const [links, setLinks] = useState<Row[]>([]);
+  const [editing, setEditing] = useState<Row | null>(null);
   const load = () => api.listLinks(projectId).then(setLinks);
   useEffect(() => {
     load();
   }, [projectId]);
 
-  const add = async () => {
-    const title = prompt("Název odkazu:");
-    if (!title) return;
-    const url = prompt("URL:");
-    if (!url) return;
-    await api.saveLink(projectId, title, url);
-    load();
-  };
-
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Odkazy</strong>
-        <button className="primary" onClick={add}>
+        <button className="primary" onClick={() => setEditing({})}>
           + Přidat odkaz
         </button>
       </div>
@@ -319,43 +385,123 @@ function Links({ projectId }: { projectId: string }) {
         links.map((l) => (
           <div key={l.id} className="list-item">
             <span>🔗</span>
-            <div>
-              <div>{l.title}</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="row" style={{ gap: 6 }}>
+                <span>{l.title}</span>
+                {l.type && <span className="badge">{l.type}</span>}
+              </div>
               <a href={l.url} target="_blank" rel="noreferrer" className="muted">
                 {l.url}
               </a>
             </div>
             <span className="spacer" />
-            <button className="ghost danger" onClick={async () => { await api.deleteLink(l.id); load(); }}>
+            <button className="ghost" onClick={() => setEditing(l)}>
+              Upravit
+            </button>
+            <button
+              className="ghost danger"
+              onClick={async () => {
+                const ok = await confirmDialog({ title: "Smazat odkaz?", message: l.title, confirmLabel: "Smazat", danger: true });
+                if (ok) { await api.deleteLink(l.id); load(); }
+              }}
+            >
               ✕
             </button>
           </div>
         ))
       )}
+      {editing && (
+        <LinkModal
+          projectId={projectId}
+          link={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
+        />
+      )}
     </div>
+  );
+}
+
+function LinkModal({
+  projectId,
+  link,
+  onClose,
+  onSaved,
+}: {
+  projectId: string;
+  link: Row;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(link.title || "");
+  const [url, setUrl] = useState(link.url || "");
+  const [ltype, setLtype] = useState(link.type || "");
+  const [description, setDescription] = useState(link.description || "");
+
+  const save = async () => {
+    if (!title.trim() || !url.trim()) return;
+    await api.saveLink(projectId, title.trim(), url.trim(), ltype || undefined, description || undefined, link.id);
+    onSaved();
+  };
+
+  return (
+    <Modal
+      title={link.id ? "Upravit odkaz" : "Nový odkaz"}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="ghost" onClick={onClose}>Zrušit</button>
+          <button className="primary" onClick={save} disabled={!title.trim() || !url.trim()}>Uložit</button>
+        </>
+      }
+    >
+      <div className="field">
+        <label>Název *</label>
+        <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Např. Produkční web" />
+      </div>
+      <div className="field">
+        <label>URL *</label>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" />
+      </div>
+      <div className="field">
+        <label>Typ</label>
+        <select value={ltype} onChange={(e) => setLtype(e.target.value)}>
+          {LINK_TYPES.map(([v, l]) => (
+            <option key={v} value={v}>{l}</option>
+          ))}
+        </select>
+      </div>
+      <div className="field">
+        <label>Popis</label>
+        <input value={description} onChange={(e) => setDescription(e.target.value)} />
+      </div>
+    </Modal>
   );
 }
 
 // ----------------------------- Přístupy ----------------------------------
 
+const CRED_TYPES = [
+  ["", "—"],
+  ["admin", "Administrace / CMS"],
+  ["hosting", "Hosting"],
+  ["ftp", "FTP / SFTP"],
+  ["db", "Databáze"],
+  ["email", "E-mail"],
+  ["domain", "Doména / registrátor"],
+  ["api", "API klíč"],
+  ["server", "Server / SSH"],
+] as const;
+
 function Credentials({ projectId }: { projectId: string }) {
   const [creds, setCreds] = useState<Row[]>([]);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<Row | null>(null);
   const load = () => api.listCredentials(projectId).then(setCreds);
   useEffect(() => {
     load();
     setRevealed({});
   }, [projectId]);
-
-  const add = async () => {
-    const title = prompt("Název přístupu (např. WordPress admin):");
-    if (!title) return;
-    const username = prompt("Login:") || "";
-    const secret = prompt("Heslo:") || "";
-    const url = prompt("URL (volitelné):") || "";
-    await api.saveCredential({ projectId, title, username, secret, url });
-    load();
-  };
 
   const reveal = async (id: string) => {
     if (revealed[id] !== undefined) {
@@ -378,7 +524,7 @@ function Credentials({ projectId }: { projectId: string }) {
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Přístupy a hesla</strong>
-        <button className="primary" onClick={add}>
+        <button className="primary" onClick={() => setEditing({})}>
           + Přidat přístup
         </button>
       </div>
@@ -391,8 +537,11 @@ function Credentials({ projectId }: { projectId: string }) {
         creds.map((c) => (
           <div key={c.id} className="list-item">
             <span>🔑</span>
-            <div>
-              <div>{c.title}</div>
+            <div style={{ minWidth: 0 }}>
+              <div className="row" style={{ gap: 6 }}>
+                <span>{c.title}</span>
+                {c.type && <span className="badge">{c.type}</span>}
+              </div>
               <div className="muted">
                 {c.username} {c.url ? "· " + c.url : ""}
               </div>
@@ -407,33 +556,146 @@ function Credentials({ projectId }: { projectId: string }) {
             <button className="ghost" onClick={() => copy(c.id)}>
               Kopírovat
             </button>
-            <button className="ghost danger" onClick={async () => { await api.deleteCredential(c.id); load(); }}>
+            <button className="ghost" onClick={() => setEditing(c)}>
+              Upravit
+            </button>
+            <button
+              className="ghost danger"
+              onClick={async () => {
+                const ok = await confirmDialog({ title: "Smazat přístup?", message: c.title, confirmLabel: "Smazat", danger: true });
+                if (ok) { await api.deleteCredential(c.id); load(); }
+              }}
+            >
               ✕
             </button>
           </div>
         ))
       )}
+      {editing && (
+        <CredentialModal
+          projectId={projectId}
+          cred={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
+        />
+      )}
     </div>
+  );
+}
+
+function CredentialModal({
+  projectId,
+  cred,
+  onClose,
+  onSaved,
+}: {
+  projectId: string;
+  cred: Row;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isEdit = !!cred.id;
+  const [title, setTitle] = useState(cred.title || "");
+  const [ctype, setCtype] = useState(cred.type || "");
+  const [username, setUsername] = useState(cred.username || "");
+  const [secret, setSecret] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
+  const [url, setUrl] = useState(cred.url || "");
+  const [note, setNote] = useState(cred.note || "");
+
+  const save = async () => {
+    if (!title.trim()) return;
+    await api.saveCredential({
+      id: cred.id,
+      projectId,
+      title: title.trim(),
+      ctype: ctype || undefined,
+      username: username || undefined,
+      // Pri editaci prazdne heslo = ponechat puvodni (backend to tak resi).
+      secret: isEdit ? (secret ? secret : undefined) : secret || undefined,
+      url: url || undefined,
+      note: note || undefined,
+    });
+    onSaved();
+  };
+
+  return (
+    <Modal
+      title={isEdit ? "Upravit přístup" : "Nový přístup"}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="ghost" onClick={onClose}>Zrušit</button>
+          <button className="primary" onClick={save} disabled={!title.trim()}>Uložit</button>
+        </>
+      }
+    >
+      <div className="field">
+        <label>Název *</label>
+        <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Např. WordPress admin" />
+      </div>
+      <div className="field">
+        <label>Typ</label>
+        <select value={ctype} onChange={(e) => setCtype(e.target.value)}>
+          {CRED_TYPES.map(([v, l]) => (
+            <option key={v} value={v}>{l}</option>
+          ))}
+        </select>
+      </div>
+      <div className="field">
+        <label>Login</label>
+        <input value={username} onChange={(e) => setUsername(e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Heslo {isEdit && <span className="muted">(prázdné = beze změny)</span>}</label>
+        <div className="row" style={{ gap: 6 }}>
+          <input
+            type={showSecret ? "text" : "password"}
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            placeholder={isEdit ? "••••••• (ponech prázdné)" : ""}
+          />
+          <button className="ghost" type="button" onClick={() => setShowSecret((s) => !s)}>
+            {showSecret ? "Skrýt" : "Zobrazit"}
+          </button>
+        </div>
+      </div>
+      <div className="field">
+        <label>URL</label>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" />
+      </div>
+      <div className="field">
+        <label>Poznámka</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+    </Modal>
   );
 }
 
 // ----------------------------- Úkoly -------------------------------------
 
 const TASK_STATUS = ["new", "in_progress", "waiting", "done", "cancelled"];
+const TASK_STATUS_LABEL: Record<string, string> = {
+  new: "nové",
+  in_progress: "rozpracované",
+  waiting: "čeká",
+  done: "hotovo",
+  cancelled: "zrušeno",
+};
+const TASK_PRIORITY = [
+  ["low", "nízká"],
+  ["normal", "běžná"],
+  ["high", "vysoká"],
+  ["urgent", "urgentní"],
+] as const;
 
 function Tasks({ projectId }: { projectId: string }) {
   const [tasks, setTasks] = useState<Row[]>([]);
+  const [editing, setEditing] = useState<Row | null>(null);
   const load = () => api.listTasks(projectId).then(setTasks);
   useEffect(() => {
     load();
   }, [projectId]);
-
-  const add = async () => {
-    const title = prompt("Název úkolu:");
-    if (!title) return;
-    await api.saveTask({ projectId, title, status: "new", priority: "normal" });
-    load();
-  };
 
   const cycle = async (t: Row) => {
     const idx = TASK_STATUS.indexOf(t.status);
@@ -449,11 +711,14 @@ function Tasks({ projectId }: { projectId: string }) {
     load();
   };
 
+  const overdue = (t: Row) =>
+    t.due_date && t.status !== "done" && t.status !== "cancelled" && t.due_date.slice(0, 10) < new Date().toISOString().slice(0, 10);
+
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Úkoly</strong>
-        <button className="primary" onClick={add}>
+        <button className="primary" onClick={() => setEditing({})}>
           + Nový úkol
         </button>
       </div>
@@ -462,21 +727,118 @@ function Tasks({ projectId }: { projectId: string }) {
       ) : (
         tasks.map((t) => (
           <div key={t.id} className="list-item">
-            <button className="badge" onClick={() => cycle(t)}>
-              {t.status}
+            <button className="badge" title="Klikni pro změnu stavu" onClick={() => cycle(t)}>
+              {TASK_STATUS_LABEL[t.status] || t.status}
             </button>
-            <span style={{ textDecoration: t.status === "done" ? "line-through" : "none" }}>
+            <span
+              style={{
+                textDecoration: t.status === "done" ? "line-through" : "none",
+                opacity: t.status === "cancelled" ? 0.5 : 1,
+                cursor: "pointer",
+              }}
+              onClick={() => setEditing(t)}
+            >
               {t.title}
             </span>
+            {t.priority === "high" && <span className="badge">⬆ vysoká</span>}
+            {t.priority === "urgent" && <span className="badge" style={{ color: "var(--danger)" }}>⚠ urgentní</span>}
             <span className="spacer" />
-            {t.due_date && <span className="muted">{t.due_date.slice(0, 10)}</span>}
-            <button className="ghost danger" onClick={async () => { await api.deleteTask(t.id); load(); }}>
+            {t.due_date && (
+              <span className="muted" style={{ color: overdue(t) ? "var(--danger)" : undefined }}>
+                {t.due_date.slice(0, 10)}
+              </span>
+            )}
+            <button
+              className="ghost danger"
+              onClick={async () => {
+                const ok = await confirmDialog({ title: "Smazat úkol?", message: t.title, confirmLabel: "Smazat", danger: true });
+                if (ok) { await api.deleteTask(t.id); load(); }
+              }}
+            >
               ✕
             </button>
           </div>
         ))
       )}
+      {editing && (
+        <TaskModal
+          projectId={projectId}
+          task={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
+        />
+      )}
     </div>
+  );
+}
+
+function TaskModal({
+  projectId,
+  task,
+  onClose,
+  onSaved,
+}: {
+  projectId: string;
+  task: Row;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [title, setTitle] = useState(task.title || "");
+  const [status, setStatus] = useState(task.status || "new");
+  const [priority, setPriority] = useState(task.priority || "normal");
+  const [dueDate, setDueDate] = useState((task.due_date || "").slice(0, 10));
+
+  const save = async () => {
+    if (!title.trim()) return;
+    await api.saveTask({
+      id: task.id,
+      projectId,
+      title: title.trim(),
+      status,
+      priority,
+      dueDate: dueDate || undefined,
+    });
+    onSaved();
+  };
+
+  return (
+    <Modal
+      title={task.id ? "Upravit úkol" : "Nový úkol"}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="ghost" onClick={onClose}>Zrušit</button>
+          <button className="primary" onClick={save} disabled={!title.trim()}>Uložit</button>
+        </>
+      }
+    >
+      <div className="field">
+        <label>Název úkolu *</label>
+        <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+      </div>
+      <div className="grid2">
+        <div className="field">
+          <label>Stav</label>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+            {TASK_STATUS.map((s) => (
+              <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>Priorita</label>
+          <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+            {TASK_PRIORITY.map(([v, l]) => (
+              <option key={v} value={v}>{l}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="field">
+        <label>Termín</label>
+        <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+      </div>
+    </Modal>
   );
 }
 

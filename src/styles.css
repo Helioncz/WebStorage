@@ -93,3 +93,72 @@ a { color: var(--accent); }
 .stat .num { font-size: 26px; font-weight: 700; }
 .empty { color: var(--text-dim); padding: 30px; text-align: center; }
 .kbd { font-family: ui-monospace, monospace; background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+
+/* ---- Modal ---- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .55);
+  display: grid; place-items: center; z-index: 100;
+  animation: fade .12s ease;
+}
+.modal {
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 12px; max-width: calc(100vw - 40px); max-height: calc(100vh - 60px);
+  display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0, 0, 0, .4);
+  animation: pop .12s ease;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.modal-body { padding: 16px; overflow-y: auto; }
+.modal-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border); }
+@keyframes fade { from { opacity: 0; } }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.98); } }
+
+/* Popis odkazu/přístupu používá input, ne mono textarea */
+.modal-body input[type="text"], .modal-body input:not([type]), .modal-body input[type="password"], .modal-body input[type="date"] {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ---- Weby (Sites) ---- */
+.site-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 14px; }
+.site-card { display: flex; align-items: center; gap: 12px; text-align: left; padding: 16px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); cursor: pointer; transition: border-color .12s, transform .12s; }
+.site-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.site-thumb { width: 48px; height: 48px; border-radius: 10px; display: grid; place-items: center; font-size: 24px; background: var(--bg-elev2); flex: none; }
+.tpl-thumb { background: linear-gradient(135deg, var(--accent), #a06bff); color: #fff; }
+.site-name { font-weight: 600; }
+.site-card.tpl { flex-direction: column; align-items: stretch; gap: 10px; padding: 0; overflow: hidden; }
+.site-card-main { display: flex; align-items: center; gap: 12px; text-align: left; padding: 16px; background: transparent; color: var(--text); border: none; cursor: pointer; }
+.site-card-main:hover { background: var(--bg-elev2); }
+.mini-use { margin: 0 12px 12px; padding: 8px; background: transparent; }
+.mini-use:hover { border-color: var(--accent); color: var(--accent); }
+
+.preview-wrap { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; }
+.preview-frame { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; height: 70vh; }
+.preview-frame.desktop { width: 100%; }
+.preview-frame.mobile { width: 390px; margin: 0 auto; height: 70vh; }
+.preview-side { display: flex; flex-direction: column; gap: 12px; }
+
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.seg button { border: none; border-radius: 0; background: transparent; padding: 6px 12px; }
+.seg button.active { background: var(--accent); color: #fff; }
+
+@media (max-width: 900px) { .preview-wrap { grid-template-columns: 1fr; } .preview-frame { height: 60vh; } }
+
+/* ---- Výběr šablony (Nový projekt) ---- */
+.tpl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tpl-card {
+  display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 12px 14px; border: 1.5px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); cursor: pointer; transition: border-color .12s, background .12s;
+}
+.tpl-card:hover { border-color: var(--accent); }
+.tpl-card.active { border-color: var(--accent); background: var(--accent-dim); }
+.tpl-ico { font-size: 22px; line-height: 1; }
+.tpl-name { font-weight: 600; font-size: 14px; }
+.tpl-desc { margin-top: 10px; padding: 10px 12px; background: var(--bg-elev2); border-radius: var(--radius); font-size: 13px; }
+
+/* ---- Dropzone (drag & drop souborů) ---- */
+.dropzone {
+  border: 1.5px dashed var(--border); border-radius: var(--radius);
+  padding: 18px; text-align: center; color: var(--text-dim);
+  margin-bottom: 12px; transition: border-color .12s, background .12s, color .12s;
+}
+.dropzone.over { border-color: var(--accent); background: var(--accent-dim); color: var(--text); }

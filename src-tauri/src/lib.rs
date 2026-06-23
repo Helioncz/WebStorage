@@ -1,6 +1,8 @@
 mod crypto;
 mod db;
 mod files;
+mod sites;
+mod templates;
 
 use chrono::Utc;
 use rusqlite::types::ValueRef;
@@ -8,7 +10,7 @@ use rusqlite::{params, Connection, Params, ToSql};
 use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, State};
 use uuid::Uuid;
 
@@ -21,6 +23,8 @@ struct Inner {
 
 pub struct AppState {
     inner: Mutex<Inner>,
+    sites_root: sites::SharedRoot,
+    preview_port: u16,
 }
 
 fn now() -> String {
@@ -86,6 +90,43 @@ fn reindex(conn: &Connection, etype: &str, id: &str, project_id: &str, title: &s
     );
 }
 
+fn set_setting_kv(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = ?2",
+        params![key, value],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn get_setting_kv(conn: &Connection, key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT value FROM app_settings WHERE key = ?1",
+        params![key],
+        |r| r.get::<_, Option<String>>(0),
+    )
+    .ok()
+    .flatten()
+}
+
+/// Vychozi web_root = slozka obsahujici `sites/` (a `site-templates/`).
+/// V dev rezimu je cwd src-tauri, takze <repo> je o uroven vyse.
+fn resolve_default_sites_root() -> PathBuf {
+    if let Ok(cwd) = std::env::current_dir() {
+        for cand in [cwd.clone(), cwd.join(".."), cwd.join("../..")] {
+            if cand.join("sites").is_dir() || cand.join("site-templates").is_dir() {
+                return cand.canonicalize().unwrap_or(cand);
+            }
+        }
+        return cwd;
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join("HangarSites");
+    }
+    PathBuf::from(".")
+}
+
 fn open_keyed(db_path: &PathBuf, key_hex: &str) -> Result<Connection, String> {
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute_batch(&format!("PRAGMA key = \"x'{key_hex}'\";"))
@@ -144,6 +185,12 @@ fn unlock(password: String, state: State<AppState>) -> Result<(), String> {
     let key = crypto::derive_key_hex(&password, &salt)?;
     let conn = open_keyed(&db_path, &key)?;
     db::apply_schema(&conn).map_err(|e| e.to_string())?;
+    // Nacti ulozenou cestu k webum (pokud uzivatel nastavil vlastni).
+    if let Some(v) = get_setting_kv(&conn, "sites_root") {
+        if !v.is_empty() {
+            *state.sites_root.lock().unwrap() = PathBuf::from(v);
+        }
+    }
     g.conn = Some(conn);
     Ok(())
 }
@@ -195,6 +242,99 @@ fn create_project(
     .map_err(|e| e.to_string())?;
     log_event(conn, &id, "created", &format!("Projekt zalozen: {name}"));
     reindex(conn, "project", &id, &id, &name, client.as_deref().unwrap_or(""));
+    Ok(id)
+}
+
+// ----------------------------- Sablony -----------------------------------
+
+#[tauri::command]
+fn list_templates() -> Vec<Value> {
+    templates::metadata()
+}
+
+/// Zalozi projekt podle sablony: predvyplni ukoly, odkazy, pristupy, poznamku
+/// a (u webovych sablon) nakopiruje startovaci kod webu do souboru projektu.
+#[tauri::command]
+fn create_project_from_template(
+    template_key: String,
+    name: String,
+    client: Option<String>,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    let t = templates::find(&template_key).ok_or("Sablona nenalezena.")?;
+
+    let id = new_id();
+    let ts = now();
+    let ptype = if t.ptype.is_empty() { None } else { Some(t.ptype) };
+    conn.execute(
+        "INSERT INTO projects (id, name, client, type, status, priority, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'active', 'normal', ?5, ?5)",
+        params![id, name, client, ptype, ts],
+    )
+    .map_err(|e| e.to_string())?;
+    log_event(conn, &id, "created", &format!("Projekt ze sablony „{}\": {name}", t.name));
+    reindex(conn, "project", &id, &id, &name, client.as_deref().unwrap_or(""));
+
+    // Ukoly
+    for task in t.tasks {
+        conn.execute(
+            "INSERT INTO project_tasks (id, project_id, title, status, priority, created_at)
+             VALUES (?1, ?2, ?3, 'new', ?4, ?5)",
+            params![new_id(), id, task.title, task.priority, now()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    // Odkazy
+    for l in t.links {
+        conn.execute(
+            "INSERT INTO project_links (id, project_id, title, url, type, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![new_id(), id, l.title, l.url, l.ltype, now()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    // Pristupy (prazdne, jako placeholdery k vyplneni)
+    for c in t.creds {
+        conn.execute(
+            "INSERT INTO project_credentials (id, project_id, title, type, username, secret, url, note, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, '', '', '', '', ?5, ?5)",
+            params![new_id(), id, c.title, c.ctype, now()],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    // Poznamka (predavaci protokol apod.)
+    if !t.note_body.is_empty() {
+        let nid = new_id();
+        conn.execute(
+            "INSERT INTO project_notes (id, project_id, title, body_md, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+            params![nid, id, t.note_title, t.note_body, now()],
+        )
+        .map_err(|e| e.to_string())?;
+        reindex(conn, "note", &nid, &id, t.note_title, t.note_body);
+    }
+    // Startovaci kod webu do CAS uloziste
+    for f in t.files {
+        let bytes = f.content.as_bytes();
+        let hash = files::store_object(&g.vault_dir, bytes)?;
+        let ext = std::path::Path::new(f.name)
+            .extension()
+            .map(|s| s.to_string_lossy().into_owned());
+        let fid = new_id();
+        conn.execute(
+            "INSERT INTO project_files (id, project_id, name, ext, blob_hash, size, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![fid, id, f.name, ext, hash, bytes.len() as i64, now()],
+        )
+        .map_err(|e| e.to_string())?;
+        reindex(conn, "file", &fid, &id, f.name, "");
+    }
+    if !t.files.is_empty() {
+        log_event(conn, &id, "file_added", &format!("Startovaci kod webu ({} soubory)", t.files.len()));
+    }
+
     Ok(id)
 }
 
@@ -678,6 +818,151 @@ fn dashboard(state: State<AppState>) -> Result<Value, String> {
     }))
 }
 
+// ----------------------------- Weby (site folders) -----------------------
+
+#[derive(serde::Serialize)]
+struct SitesConfig {
+    root: String,
+    preview_port: u16,
+}
+
+#[tauri::command]
+fn get_sites_root(state: State<AppState>) -> SitesConfig {
+    let root = state.sites_root.lock().unwrap().clone();
+    SitesConfig {
+        root: root.to_string_lossy().into_owned(),
+        preview_port: state.preview_port,
+    }
+}
+
+#[tauri::command]
+fn set_sites_root(path: String, state: State<AppState>) -> Result<(), String> {
+    let pb = PathBuf::from(&path);
+    if !pb.is_dir() {
+        return Err("Vybrana cesta neni slozka.".into());
+    }
+    *state.sites_root.lock().unwrap() = pb;
+    let g = state.inner.lock().unwrap();
+    if let Some(conn) = g.conn.as_ref() {
+        set_setting_kv(conn, "sites_root", &path)?;
+    }
+    Ok(())
+}
+
+fn site_json(s: &sites::SiteInfo) -> Value {
+    serde_json::json!({
+        "slug": s.slug,
+        "rel": s.rel,
+        "has_index": s.has_index,
+        "file_count": s.file_count,
+        "title": s.title,
+    })
+}
+
+/// Pracovni weby (sites/) — editujes, verzujes, deployujes.
+#[tauri::command]
+fn list_sites(state: State<AppState>) -> Vec<Value> {
+    let root = state.sites_root.lock().unwrap().clone();
+    sites::list_in(&root, "sites").iter().map(site_json).collect()
+}
+
+/// Knihovna sablon (site-templates/) — jen ke cteni / kopirovani.
+#[tauri::command]
+fn list_site_templates(state: State<AppState>) -> Vec<Value> {
+    let root = state.sites_root.lock().unwrap().clone();
+    sites::list_in(&root, "site-templates").iter().map(site_json).collect()
+}
+
+/// Vytvori novy pracovni web zkopirovanim sablony do sites/<slug>.
+#[tauri::command]
+fn use_site_template(template_rel: String, new_slug: String, state: State<AppState>) -> Result<String, String> {
+    let slug: String = new_slug
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        return Err("Zadej nazev webu.".into());
+    }
+    let root = state.sites_root.lock().unwrap().clone();
+    let src = root.join(&template_rel);
+    if !src.is_dir() {
+        return Err("Sablona nenalezena.".into());
+    }
+    let dst = root.join("sites").join(&slug);
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    sites::copy_dir(&src, &dst)?;
+    Ok(format!("sites/{slug}"))
+}
+
+#[tauri::command]
+fn list_site_files(rel: String, state: State<AppState>) -> Vec<String> {
+    let root = state.sites_root.lock().unwrap().clone();
+    sites::list_site_files(&root, &rel)
+}
+
+#[tauri::command]
+fn read_site_file(rel: String, path: String, state: State<AppState>) -> Result<String, String> {
+    let root = state.sites_root.lock().unwrap().clone();
+    let target = root.join(&rel).join(&path);
+    fs::read_to_string(&target).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_site_file(rel: String, path: String, content: String, state: State<AppState>) -> Result<(), String> {
+    let root = state.sites_root.lock().unwrap().clone();
+    let target = root.join(&rel).join(&path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&target, content).map_err(|e| e.to_string())
+}
+
+/// URL pro live preview v iframe (rel = "sites/foo" nebo "site-templates/bar").
+#[tauri::command]
+fn site_preview_url(rel: String, state: State<AppState>) -> String {
+    format!("http://127.0.0.1:{}/{}/", state.preview_port, rel)
+}
+
+#[tauri::command]
+fn open_site_folder(rel: String, state: State<AppState>) -> Result<(), String> {
+    let root = state.sites_root.lock().unwrap().clone();
+    let dir = root.join(&rel);
+    tauri_plugin_opener::open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn export_site_zip(rel: String, dest: String, state: State<AppState>) -> Result<(), String> {
+    let root = state.sites_root.lock().unwrap().clone();
+    sites::zip_site(&root, &rel, &PathBuf::from(dest))
+}
+
+/// Ulozena „ziva" adresa webu (po deployi). Klic = rel.
+#[tauri::command]
+fn get_deploy_url(rel: String, state: State<AppState>) -> Option<String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref()?;
+    get_setting_kv(conn, &format!("deploy:{rel}"))
+}
+
+#[tauri::command]
+fn set_deploy_url(rel: String, url: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, &format!("deploy:{rel}"), &url)
+}
+
+/// Otevre adresu v systemovem prohlizeci.
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 // ----------------------------- Bootstrap ---------------------------------
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -691,11 +976,18 @@ pub fn run() {
                 .app_data_dir()
                 .expect("nelze ziskat app_data_dir")
                 .join("vault");
+            // Koren se slozkami webu + lokalni preview server.
+            let sites_root: sites::SharedRoot =
+                Arc::new(Mutex::new(resolve_default_sites_root()));
+            let preview_port =
+                sites::start_preview_server(sites_root.clone()).unwrap_or(0);
             app.manage(AppState {
                 inner: Mutex::new(Inner {
                     conn: None,
                     vault_dir: dir,
                 }),
+                sites_root,
+                preview_port,
             });
             Ok(())
         })
@@ -707,6 +999,8 @@ pub fn run() {
             list_projects,
             get_project,
             create_project,
+            list_templates,
+            create_project_from_template,
             update_project,
             delete_project,
             touch_opened,
@@ -730,6 +1024,20 @@ pub fn run() {
             list_events,
             search,
             dashboard,
+            get_sites_root,
+            set_sites_root,
+            list_sites,
+            list_site_templates,
+            use_site_template,
+            list_site_files,
+            read_site_file,
+            write_site_file,
+            site_preview_url,
+            open_site_folder,
+            export_site_zip,
+            get_deploy_url,
+            set_deploy_url,
+            open_external_url,
         ])
         .run(tauri::generate_context!())
         .expect("chyba pri spousteni Tauri aplikace");

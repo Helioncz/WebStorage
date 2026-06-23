@@ -17,6 +17,11 @@ export const api = {
   getProject: (id: string) => invoke<Project>("get_project", { id }),
   createProject: (name: string, client?: string, ptype?: string) =>
     invoke<string>("create_project", { name, client, ptype }),
+
+  // Sablony
+  listTemplates: () => invoke<Row[]>("list_templates"),
+  createProjectFromTemplate: (templateKey: string, name: string, client?: string) =>
+    invoke<string>("create_project_from_template", { templateKey, name, client }),
   updateProject: (id: string, fields: Record<string, any>) =>
     invoke<void>("update_project", { id, fields }),
   deleteProject: (id: string) => invoke<void>("delete_project", { id }),
@@ -73,6 +78,26 @@ export const api = {
     invoke<string>("import_file", { projectId, srcPath }),
   openFile: (id: string) => invoke<void>("open_file", { id }),
   deleteFile: (id: string) => invoke<void>("delete_file", { id }),
+
+  // Weby (slozky na disku, mimo trezor). `rel` = "sites/foo" nebo "site-templates/bar".
+  getSitesRoot: () => invoke<{ root: string; preview_port: number }>("get_sites_root"),
+  setSitesRoot: (path: string) => invoke<void>("set_sites_root", { path }),
+  listSites: () => invoke<Row[]>("list_sites"),
+  listSiteTemplates: () => invoke<Row[]>("list_site_templates"),
+  useSiteTemplate: (templateRel: string, newSlug: string) =>
+    invoke<string>("use_site_template", { templateRel, newSlug }),
+  listSiteFiles: (rel: string) => invoke<string[]>("list_site_files", { rel }),
+  readSiteFile: (rel: string, path: string) =>
+    invoke<string>("read_site_file", { rel, path }),
+  writeSiteFile: (rel: string, path: string, content: string) =>
+    invoke<void>("write_site_file", { rel, path, content }),
+  sitePreviewUrl: (rel: string) => invoke<string>("site_preview_url", { rel }),
+  openSiteFolder: (rel: string) => invoke<void>("open_site_folder", { rel }),
+  exportSiteZip: (rel: string, dest: string) =>
+    invoke<void>("export_site_zip", { rel, dest }),
+  getDeployUrl: (rel: string) => invoke<string | null>("get_deploy_url", { rel }),
+  setDeployUrl: (rel: string, url: string) => invoke<void>("set_deploy_url", { rel, url }),
+  openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
 
   // Historie, hledani, dashboard
   listEvents: (projectId: string) => invoke<Row[]>("list_events", { projectId }),

@@ -4,6 +4,8 @@ import Unlock from "./components/Unlock";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import ProjectDetail from "./components/ProjectDetail";
+import Sites from "./components/Sites";
+import { ConfirmHost } from "./components/Modal";
 
 export default function App() {
   const { unlocked, theme, view, selectedProjectId } = useStore();
@@ -20,10 +22,13 @@ export default function App() {
       <main className="main">
         {view === "project" && selectedProjectId ? (
           <ProjectDetail projectId={selectedProjectId} key={selectedProjectId} />
+        ) : view === "sites" ? (
+          <Sites />
         ) : (
           <Dashboard />
         )}
       </main>
+      <ConfirmHost />
     </div>
   );
 }

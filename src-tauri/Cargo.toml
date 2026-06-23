@@ -27,6 +27,10 @@ hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock"] }
 thiserror = "1"
+# Lokalni HTTP server pro live preview webu + ZIP export slozky
+tiny_http = "0.12"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+walkdir = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

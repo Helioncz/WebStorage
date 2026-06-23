@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS project_events (
     created_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
 -- Fulltext index (cestina: bez diakritiky)
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     entity_type,
