@@ -1,0 +1,14 @@
+{
+  "name": "hangar-ai-proxy-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Small AI proxy server for Project Hangar.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  }
+}

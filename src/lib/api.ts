@@ -12,6 +12,9 @@ export const api = {
   initialize: (password: string) => invoke<void>("initialize", { password }),
   unlock: (password: string) => invoke<void>("unlock", { password }),
   lock: () => invoke<void>("lock"),
+  resetVault: () => invoke<void>("reset_vault"),
+  appVersion: () => invoke<string>("app_version"),
+  backupVault: (dest: string) => invoke<void>("backup_vault", { dest }),
 
   // Projekty
   listProjects: () => invoke<Project[]>("list_projects"),
@@ -84,6 +87,10 @@ export const api = {
   getSitesRoot: () => invoke<{ root: string; preview_port: number }>("get_sites_root"),
   setSitesRoot: (path: string) => invoke<void>("set_sites_root", { path }),
   listSites: () => invoke<Row[]>("list_sites"),
+  setSiteName: (rel: string, name: string) => invoke<void>("set_site_name", { rel, name }),
+  setSiteIcon: (rel: string, dataUrl: string) => invoke<void>("set_site_icon", { rel, dataUrl }),
+  readFileBase64: (path: string) => invoke<string>("read_file_base64", { path }),
+  importTemplate: (srcPath: string, name: string) => invoke<string>("import_template", { srcPath, name }),
   listSiteTemplates: () => invoke<Row[]>("list_site_templates"),
   useSiteTemplate: (templateRel: string, newSlug: string) =>
     invoke<string>("use_site_template", { templateRel, newSlug }),
@@ -94,6 +101,8 @@ export const api = {
     invoke<void>("write_site_file", { rel, path, content }),
   deleteSiteFile: (rel: string, path: string) =>
     invoke<void>("delete_site_file", { rel, path }),
+  importAsset: (rel: string, srcPath: string, subdir?: string) =>
+    invoke<string>("import_asset", { rel, srcPath, subdir }),
   deleteSite: (rel: string) => invoke<void>("delete_site", { rel }),
   sitePreviewUrl: (rel: string) => invoke<string>("site_preview_url", { rel }),
   openSiteFolder: (rel: string) => invoke<void>("open_site_folder", { rel }),
@@ -101,6 +110,9 @@ export const api = {
     invoke<void>("export_site_zip", { rel, dest }),
   getDeployUrl: (rel: string) => invoke<string | null>("get_deploy_url", { rel }),
   setDeployUrl: (rel: string, url: string) => invoke<void>("set_deploy_url", { rel, url }),
+  setNetlifyToken: (token: string) => invoke<void>("set_netlify_token", { token }),
+  netlifyHasToken: () => invoke<boolean>("netlify_has_token"),
+  netlifyDeploy: (rel: string) => invoke<string>("netlify_deploy", { rel }),
   openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
 
   // AI asistent
@@ -116,6 +128,32 @@ export const api = {
     invoke<{ status: number; body: string }>("github_api", { method, path, body }),
   getRepoLink: (rel: string) => invoke<string | null>("get_repo_link", { rel }),
   setRepoLink: (rel: string, value: string) => invoke<void>("set_repo_link", { rel, value }),
+  // Lokální git (GitHub Desktop)
+  gitAvailable: () => invoke<boolean>("git_available"),
+  gitIsRepo: (rel: string) => invoke<boolean>("git_is_repo", { rel }),
+  gitLink: (rel: string) => invoke<void>("git_link", { rel }),
+  gitCommitPush: (rel: string, message: string) => invoke<string>("git_commit_push", { rel, message }),
+  gitInitPush: (rel: string, message: string) => invoke<string>("git_init_push", { rel, message }),
+  gitPull: (rel: string) => invoke<void>("git_pull", { rel }),
+  openInGithubDesktop: (rel: string) => invoke<void>("open_in_github_desktop", { rel }),
+  detectApps: () => invoke<{ name: string; path: string }[]>("detect_apps"),
+  openInApp: (rel: string, app: string) => invoke<void>("open_in_app", { rel, app }),
+  getOpenApp: () => invoke<string>("get_open_app"),
+  setOpenApp: (app: string) => invoke<void>("set_open_app", { app }),
+  getSyncConfig: () => invoke<{ url: string; has_token: boolean }>("get_sync_config"),
+  setSyncConfig: (url: string, token?: string) =>
+    invoke<void>("set_sync_config", { url, token }),
+  syncCheckLatest: (rel: string) =>
+    invoke<{
+      owner: string;
+      repo: string;
+      last_seen_id: number;
+      latest_id: number;
+      changed: boolean;
+      latest: Record<string, any> | null;
+    }>("sync_check_latest", { rel }),
+  syncMarkSeen: (rel: string, eventId: number) =>
+    invoke<void>("sync_mark_seen", { rel, eventId }),
 
   // Historie, hledani, dashboard
   listEvents: (projectId: string) => invoke<Row[]>("list_events", { projectId }),

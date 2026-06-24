@@ -22,9 +22,14 @@ export default function GitHubPanel({
   const [msg, setMsg] = useState("Update z Hangaru");
   const [status, setStatus] = useState<string>("");
   const [err, setErr] = useState<string>("");
+  const [syncUrl, setSyncUrl] = useState("");
+  const [syncToken, setSyncToken] = useState("");
+  const [syncHasToken, setSyncHasToken] = useState(false);
+  const [syncEditing, setSyncEditing] = useState(false);
 
-  // připojení tokenu
+  // připojení / změna tokenu
   const [token, setToken] = useState("");
+  const [changing, setChanging] = useState(false);
   // vytvoření repa
   const [repoName, setRepoName] = useState(slug);
   const [isPrivate, setIsPrivate] = useState(true);
@@ -33,6 +38,9 @@ export default function GitHubPanel({
     setLoading(true);
     setLogin(await gh.githubLogin());
     setLink(await gh.loadRepoLink(rel));
+    const sync = await api.getSyncConfig();
+    setSyncUrl(sync.url);
+    setSyncHasToken(sync.has_token);
     setLoading(false);
   };
   useEffect(() => { refresh(); }, [rel]);
@@ -47,7 +55,7 @@ export default function GitHubPanel({
       await api.setGithubToken(token.trim());
       const l = await gh.githubLogin();
       if (!l) throw new Error("Token nefunguje — zkontroluj scope (repo).");
-      setLogin(l); setToken(""); flash(`Připojeno jako ${l} ✓`);
+      setLogin(l); setToken(""); setChanging(false); flash(`Připojeno jako ${l} ✓`);
     } catch (e) { fail(e); } finally { setBusy(""); }
   };
 
@@ -77,7 +85,48 @@ export default function GitHubPanel({
     setBusy("pull");
     try {
       const n = await gh.pull(rel, link);
-      flash(`Staženo ${n} souborů ✓`);
+      flash(n < 0 ? "Staženo z GitHubu ✓" : `Staženo ${n} souborů ✓`);
+      onPulled();
+    } catch (e) { fail(e); } finally { setBusy(""); }
+  };
+
+  const openDesktop = async () => {
+    setBusy("desktop");
+    try {
+      await gh.linkLocalAndOpen(rel, "GitHub Desktop");
+      flash("Otevřeno v GitHub Desktop ✓");
+    } catch (e) { fail(e); } finally { setBusy(""); }
+  };
+
+  const saveSync = async () => {
+    setBusy("sync-save");
+    try {
+      await api.setSyncConfig(syncUrl.trim(), syncToken.trim() || undefined);
+      setSyncToken("");
+      setSyncEditing(false);
+      const sync = await api.getSyncConfig();
+      setSyncUrl(sync.url);
+      setSyncHasToken(sync.has_token);
+      flash("Sync server uložen ✓");
+    } catch (e) { fail(e); } finally { setBusy(""); }
+  };
+
+  const checkSync = async () => {
+    if (!link) return;
+    setBusy("sync-check");
+    try {
+      const result = await api.syncCheckLatest(rel);
+      if (!result.latest) {
+        flash("Sync server zatím nemá žádné webhook události pro toto repo.");
+        return;
+      }
+      if (!result.changed) {
+        flash(`Žádné nové změny. Poslední event #${result.latest_id}.`);
+        return;
+      }
+      await gh.pull(rel, link);
+      await api.syncMarkSeen(rel, result.latest_id);
+      flash(`Nový commit ze sync serveru stažen ✓ (${result.latest?.after_sha?.slice?.(0, 7) || "commit"})`);
       onPulled();
     } catch (e) { fail(e); } finally { setBusy(""); }
   };
@@ -87,10 +136,10 @@ export default function GitHubPanel({
       footer={<button className="ghost" onClick={onClose}>Zavřít</button>}>
       {loading ? (
         <div className="muted">Načítání…</div>
-      ) : !login ? (
+      ) : !login || changing ? (
         <>
           <div className="field">
-            <label>Připojit GitHub (osobní token)</label>
+            <label>{changing ? "Změnit GitHub token" : "Připojit GitHub (osobní token)"}</label>
             <input type="password" autoFocus value={token} onChange={(e) => setToken(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && connect()} placeholder="ghp_… / github_pat_…" />
           </div>
@@ -101,16 +150,20 @@ export default function GitHubPanel({
           </div>
           <div className="row" style={{ marginTop: 12 }}>
             <button className="primary" onClick={connect} disabled={!token.trim() || busy === "connect"}>
-              {busy === "connect" ? "Ověřuji…" : "Připojit"}
+              {busy === "connect" ? "Ověřuji…" : changing ? "Uložit token" : "Připojit"}
             </button>
             <button className="ghost" onClick={() => api.openExternalUrl("https://github.com/settings/tokens?type=beta")}>
               Otevřít GitHub
             </button>
+            {changing && <button className="ghost" onClick={() => { setChanging(false); setToken(""); }}>Zrušit</button>}
           </div>
         </>
       ) : !link ? (
         <>
-          <div className="muted" style={{ marginBottom: 12 }}>Připojeno jako <strong>{login}</strong>.</div>
+          <div className="row between" style={{ marginBottom: 12 }}>
+            <span className="muted">Připojeno jako <strong>{login}</strong>.</span>
+            <button className="ghost" onClick={() => setChanging(true)}>Změnit token</button>
+          </div>
           <div className="field">
             <label>Název repozitáře</label>
             <input value={repoName} onChange={(e) => setRepoName(e.target.value)} />
@@ -141,10 +194,63 @@ export default function GitHubPanel({
               {busy === "pull" ? "Stahuji…" : "⬇ Pull z GitHubu"}
             </button>
             <button className="ghost" onClick={() => api.openExternalUrl(link.url)}>Otevřít repo</button>
+            <button className="ghost" onClick={openDesktop} disabled={!!busy}>
+              {busy === "desktop" ? "Otevírám…" : "⊞ GitHub Desktop"}
+            </button>
+            <button className="ghost" onClick={() => setChanging(true)}>Změnit token</button>
           </div>
           <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
             Tip: web můžeš upravovat i mimo appku (Claude Code/VS Code), pushnout, pak zde dát <strong>Pull</strong> —
             změny se načtou zpět i do náhledu.
+          </div>
+
+          <div className="card" style={{ marginTop: 14, marginBottom: 0 }}>
+            <div className="row between" style={{ marginBottom: 8 }}>
+              <div>
+                <strong>Sync server</strong>
+                <div className="muted" style={{ fontSize: 12 }}>
+                  Přijímá GitHub webhooky a řekne Hangaru, kdy má stáhnout nové změny.
+                </div>
+              </div>
+              {!syncEditing && (
+                <button className="ghost" onClick={() => setSyncEditing(true)}>
+                  {syncUrl && syncHasToken ? "Upravit" : "Nastavit"}
+                </button>
+              )}
+            </div>
+
+            {syncEditing || !syncUrl || !syncHasToken ? (
+              <>
+                <div className="field">
+                  <label>Sync server URL</label>
+                  <input value={syncUrl} onChange={(e) => setSyncUrl(e.target.value)} placeholder="https://hangar-sync.example.com" />
+                </div>
+                <div className="field">
+                  <label>Sync token</label>
+                  <input
+                    type="password"
+                    value={syncToken}
+                    onChange={(e) => setSyncToken(e.target.value)}
+                    placeholder={syncHasToken ? "Nech prázdné pro zachování tokenu" : "SYNC_API_TOKEN"}
+                  />
+                </div>
+                <div className="row">
+                  <button className="primary" onClick={saveSync} disabled={!syncUrl.trim() || busy === "sync-save"}>
+                    {busy === "sync-save" ? "Ukládám…" : "Uložit sync"}
+                  </button>
+                  {syncEditing && <button className="ghost" onClick={() => { setSyncEditing(false); setSyncToken(""); }}>Zrušit</button>}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+                  Nastaveno: <code className="kbd">{syncUrl}</code>
+                </div>
+                <button className="ghost" onClick={checkSync} disabled={!!busy}>
+                  {busy === "sync-check" ? "Kontroluji…" : "⟳ Zkontrolovat změny ze sync serveru"}
+                </button>
+              </>
+            )}
           </div>
         </>
       )}

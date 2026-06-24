@@ -9,6 +9,39 @@ import { Modal, confirmDialog } from "./Modal";
 const TABS = ["Přehled", "Soubory", "Poznámky", "Odkazy", "Přístupy", "Úkoly", "Historie"] as const;
 type Tab = (typeof TABS)[number];
 
+const LAUNCH_CHECKLIST = [
+  { title: "Doména koupena / převedena", priority: "high" },
+  { title: "DNS nastavené na hosting / deploy platformu", priority: "high" },
+  { title: "Hosting nebo deploy platforma připravená", priority: "high" },
+  { title: "GitHub repozitář založený a propojený", priority: "high" },
+  { title: "Produkční URL uložená v projektu", priority: "normal" },
+  { title: "SSL certifikát a HTTPS funkční", priority: "urgent" },
+  { title: "Kontrola responzivity mobil / tablet / desktop", priority: "high" },
+  { title: "Kontrola formulářů a odesílání e-mailů", priority: "urgent" },
+  { title: "SEO základ: title, description, OG image", priority: "normal" },
+  { title: "Favicon, ikony a název v prohlížeči", priority: "normal" },
+  { title: "Sitemap.xml a robots.txt", priority: "normal" },
+  { title: "Napojení analytiky / měření", priority: "low" },
+  { title: "GDPR / cookies / právní texty", priority: "normal" },
+  { title: "PageSpeed kontrola a základní optimalizace", priority: "normal" },
+  { title: "Záloha zdrojových souborů a přístupů", priority: "high" },
+  { title: "Finální kontrola po nasazení", priority: "urgent" },
+];
+
+const QUICK_WEB_LINKS = [
+  { title: "GitHub", url: "https://github.com", type: "git", description: "Repozitáře a verzování" },
+  { title: "Netlify", url: "https://app.netlify.com", type: "hosting", description: "Deploy statických webů" },
+  { title: "Vercel", url: "https://vercel.com/dashboard", type: "hosting", description: "Deploy webů a frameworků" },
+  { title: "Cloudflare", url: "https://dash.cloudflare.com", type: "hosting", description: "DNS, domény, CDN" },
+  { title: "Google Search Console", url: "https://search.google.com/search-console", type: "monitoring", description: "Indexace a SEO kontrola" },
+  { title: "PageSpeed Insights", url: "https://pagespeed.web.dev", type: "monitoring", description: "Rychlost a Core Web Vitals" },
+  { title: "Google Analytics", url: "https://analytics.google.com", type: "monitoring", description: "Analytika návštěvnosti" },
+];
+
+function isLaunchTask(title: string) {
+  return LAUNCH_CHECKLIST.some((item) => title.toLowerCase().includes(item.title.toLowerCase().slice(0, 14)));
+}
+
 export default function ProjectDetail({ projectId }: { projectId: string }) {
   const [tab, setTab] = useState<Tab>("Přehled");
   const [project, setProject] = useState<Project | null>(null);
@@ -112,6 +145,10 @@ function Overview({ project, onSaved }: { project: Project; onSaved: () => void 
   const set = (k: string, v: any) => setF({ ...f, [k]: v });
 
   return (
+    <>
+    {(project.type === "web" || project.type === "eshop" || !project.type) && (
+      <WebReadiness projectId={project.id} />
+    )}
     <div className="card">
       <div className="grid2">
         <div className="field">
@@ -169,6 +206,67 @@ function Overview({ project, onSaved }: { project: Project; onSaved: () => void 
       <button className="primary" onClick={save}>
         Uložit
       </button>
+    </div>
+    </>
+  );
+}
+
+function WebReadiness({ projectId }: { projectId: string }) {
+  const [tasks, setTasks] = useState<Row[]>([]);
+  const [links, setLinks] = useState<Row[]>([]);
+  const [creds, setCreds] = useState<Row[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      api.listTasks(projectId),
+      api.listLinks(projectId),
+      api.listCredentials(projectId),
+    ]).then(([t, l, c]) => {
+      setTasks(t); setLinks(l); setCreds(c);
+    }).catch(console.error);
+  }, [projectId]);
+
+  const taskDone = (needle: string) =>
+    tasks.some((t) => (t.title || "").toLowerCase().includes(needle.toLowerCase()) && t.status === "done");
+  const hasLink = (type: string) => links.some((l) => l.type === type || (l.title || "").toLowerCase().includes(type));
+  const hasCred = (type: string) => creds.some((c) => c.type === type || (c.title || "").toLowerCase().includes(type));
+  const launchTasks = tasks.filter((t) => isLaunchTask(t.title || ""));
+  const done = launchTasks.filter((t) => t.status === "done").length;
+  const total = launchTasks.length || LAUNCH_CHECKLIST.length;
+  const pct = Math.round((done / total) * 100);
+
+  const checks = [
+    { label: "Checklist založený", ok: launchTasks.length >= 6, hint: "Úkoly → Vložit checklist spuštění" },
+    { label: "Doména/DNS", ok: taskDone("doména") || hasLink("domain"), hint: "doména, DNS, nameservery" },
+    { label: "Hosting/deploy", ok: taskDone("hosting") || hasLink("hosting"), hint: "Netlify/Vercel/hosting" },
+    { label: "GitHub repo", ok: hasLink("git"), hint: "repo a verzování" },
+    { label: "SSL/HTTPS", ok: taskDone("ssl") || taskDone("https"), hint: "certifikát a HTTPS" },
+    { label: "Formuláře", ok: taskDone("formulář") || taskDone("formuláře"), hint: "odesílání a validace" },
+    { label: "SEO základ", ok: taskDone("seo"), hint: "title, description, sitemap" },
+    { label: "Přístupy", ok: hasCred("hosting") || hasCred("admin") || hasCred("domain"), hint: "hosting/admin/doména" },
+  ];
+
+  return (
+    <div className="card launch-card">
+      <div className="row between">
+        <div>
+          <strong>Spouštěcí stav webu</strong>
+          <div className="muted" style={{ fontSize: 12 }}>Rychlý přehled, co ještě chybí před ostrým spuštěním.</div>
+        </div>
+        <div className={"launch-score " + (pct >= 80 ? "ok" : pct >= 45 ? "warn" : "bad")}>{pct}%</div>
+      </div>
+      <div className="launch-progress"><span style={{ width: `${pct}%` }} /></div>
+      <div className="launch-grid">
+        {checks.map((c) => (
+          <div key={c.label} className={"launch-check " + (c.ok ? "ok" : "todo")}>
+            <span className="lamp" />
+            <div>
+              <div>{c.label}</div>
+              <small>{c.ok ? "OK" : c.hint}</small>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -371,13 +469,25 @@ function Links({ projectId }: { projectId: string }) {
     load();
   }, [projectId]);
 
+  const seedWebLinks = async () => {
+    const existing = new Set(links.map((l) => (l.title || "").toLowerCase()));
+    for (const l of QUICK_WEB_LINKS) {
+      if (existing.has(l.title.toLowerCase())) continue;
+      await api.saveLink(projectId, l.title, l.url, l.type, l.description);
+    }
+    load();
+  };
+
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Odkazy</strong>
-        <button className="primary" onClick={() => setEditing({})}>
-          + Přidat odkaz
-        </button>
+        <div className="row">
+          <button className="ghost" onClick={seedWebLinks}>Vložit web nástroje</button>
+          <button className="primary" onClick={() => setEditing({})}>
+            + Přidat odkaz
+          </button>
+        </div>
       </div>
       {links.length === 0 ? (
         <div className="muted">Žádné odkazy.</div>
@@ -714,16 +824,51 @@ function Tasks({ projectId }: { projectId: string }) {
   const overdue = (t: Row) =>
     t.due_date && t.status !== "done" && t.status !== "cancelled" && t.due_date.slice(0, 10) < new Date().toISOString().slice(0, 10);
 
+  const seedLaunchChecklist = async () => {
+    const existing = new Set(tasks.map((t) => (t.title || "").toLowerCase()));
+    for (const item of LAUNCH_CHECKLIST) {
+      if (existing.has(item.title.toLowerCase())) continue;
+      await api.saveTask({
+        projectId,
+        title: item.title,
+        status: "new",
+        priority: item.priority,
+      });
+    }
+    load();
+  };
+
+  const launchTasks = tasks.filter((t) => isLaunchTask(t.title || ""));
+  const doneLaunch = launchTasks.filter((t) => t.status === "done").length;
+  const launchPct = launchTasks.length ? Math.round((doneLaunch / launchTasks.length) * 100) : 0;
+
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Úkoly</strong>
-        <button className="primary" onClick={() => setEditing({})}>
-          + Nový úkol
-        </button>
+        <div className="row">
+          <button className="ghost" onClick={seedLaunchChecklist}>Vložit checklist spuštění</button>
+          <button className="primary" onClick={() => setEditing({})}>
+            + Nový úkol
+          </button>
+        </div>
       </div>
+      {launchTasks.length > 0 && (
+        <div className="mini-launch">
+          <div className="row between">
+            <span>Checklist spuštění webu</span>
+            <strong>{doneLaunch}/{launchTasks.length} hotovo · {launchPct}%</strong>
+          </div>
+          <div className="launch-progress"><span style={{ width: `${launchPct}%` }} /></div>
+        </div>
+      )}
       {tasks.length === 0 ? (
-        <div className="muted">Žádné úkoly.</div>
+        <div className="empty">
+          <div>Žádné úkoly.</div>
+          <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
+            Pro web začni tlačítkem <strong>Vložit checklist spuštění</strong> — dostaneš kroky pro doménu, hosting, SSL, SEO, formuláře i předání.
+          </div>
+        </div>
       ) : (
         tasks.map((t) => (
           <div key={t.id} className="list-item">

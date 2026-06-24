@@ -5,6 +5,9 @@ import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import ProjectDetail from "./components/ProjectDetail";
 import Sites from "./components/Sites";
+import Settings from "./components/Settings";
+import Help from "./components/Help";
+import StatusBar from "./components/StatusBar";
 import NewProjectModal from "./components/NewProjectModal";
 import { ConfirmHost } from "./components/Modal";
 
@@ -25,12 +28,17 @@ export default function App() {
           <ProjectDetail projectId={selectedProjectId} key={selectedProjectId} />
         ) : view === "sites" ? (
           <Sites />
+        ) : view === "settings" ? (
+          <Settings />
+        ) : view === "help" ? (
+          <Help />
         ) : (
           <Dashboard />
         )}
       </main>
       <NewProjectModal />
       <ConfirmHost />
+      <StatusBar />
     </div>
   );
 }

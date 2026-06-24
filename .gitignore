@@ -9,3 +9,10 @@ src-tauri/gen
 
 # Claude Code lokalni nastaveni
 .claude/settings.local.json
+
+# Hangar sync server runtime data
+sync-server/data
+sync-server/.env
+
+# Hangar AI proxy server secrets
+ai-proxy-server/.env

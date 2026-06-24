@@ -11,13 +11,16 @@ export const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function Sidebar() {
-  const { selectedProjectId, openProject, openDashboard, openSites, openNewProject, refreshKey } = useStore();
+  const { selectedProjectId, openProject, openDashboard, openSites, openNewProject, gotoSettings, openHelp, refreshKey, theme, toggleTheme } = useStore();
+  const THEME_LABEL: Record<string, string> = { dark: "Tmavý", light: "Světlý", ocean: "Oceán", rose: "Růžová" };
   const [projects, setProjects] = useState<Project[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Row[] | null>(null);
+  const [displayName, setDisplayName] = useState(localStorage.getItem("displayName") || "Lokální uživatel");
 
   useEffect(() => {
     api.listProjects().then(setProjects).catch(console.error);
+    setDisplayName(localStorage.getItem("displayName") || "Lokální uživatel");
   }, [refreshKey]);
 
   useEffect(() => {
@@ -32,13 +35,22 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
-        <span className="brand">▣ Hangar</span>
+        <div className="brand-block">
+          <span className="brand">▣ Hangar</span>
+          <button className="user-pill" title="Otevřít nastavení profilu" onClick={gotoSettings}>👤 {displayName}</button>
+        </div>
         <span className="spacer" />
         <button className="ghost" title="Dashboard" onClick={openDashboard}>
           ⌂
         </button>
         <button className="ghost" title="Weby" onClick={openSites}>
           🌐
+        </button>
+        <button className="ghost" title="Nastavení" onClick={gotoSettings}>
+          ⚙
+        </button>
+        <button className="ghost" title="Nápověda" onClick={openHelp}>
+          ?
         </button>
       </div>
 
@@ -95,7 +107,7 @@ export default function Sidebar() {
         <button className="primary" style={{ flex: 1 }} onClick={() => openNewProject()}>
           + Nový projekt
         </button>
-        <button className="ghost" title="Přepnout motiv" onClick={useStore.getState().toggleTheme}>
+        <button className="ghost" title={`Motiv: ${THEME_LABEL[theme] || theme} (klikni pro další)`} onClick={toggleTheme}>
           ◐
         </button>
         <button

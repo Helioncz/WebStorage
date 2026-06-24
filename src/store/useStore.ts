@@ -1,19 +1,25 @@
 import { create } from "zustand";
 
-type View = "dashboard" | "project" | "sites";
+type View = "dashboard" | "project" | "sites" | "settings" | "help";
 
 interface AppStore {
   unlocked: boolean;
   setUnlocked: (v: boolean) => void;
-  theme: "dark" | "light";
+  theme: string;
   toggleTheme: () => void;
+  setTheme: (t: string) => void;
   view: View;
   selectedProjectId: string | null;
   openProject: (id: string) => void;
   openDashboard: () => void;
   openSites: () => void;
+  gotoSettings: () => void;
+  openHelp: () => void;
   refreshKey: number;
   refresh: () => void;
+  // Stavová lišta — krátká zpráva o probíhající akci
+  statusMsg: string;
+  setStatus: (m: string) => void;
   // Nový projekt (web) — globální modal
   newProjectOpen: boolean;
   newProjectTemplate: string | null;
@@ -25,8 +31,12 @@ interface AppStore {
   consumePendingSite: () => void;
 }
 
-const initialTheme = (): "dark" | "light" =>
-  (localStorage.getItem("theme") as "dark" | "light") || "dark";
+export const THEMES = ["dark", "light", "ocean", "rose"];
+const initialTheme = (): string => localStorage.getItem("theme") || "dark";
+const applyTheme = (t: string) => {
+  localStorage.setItem("theme", t);
+  document.documentElement.setAttribute("data-theme", t);
+};
 
 export const useStore = create<AppStore>((set) => ({
   unlocked: false,
@@ -34,18 +44,23 @@ export const useStore = create<AppStore>((set) => ({
   theme: initialTheme(),
   toggleTheme: () =>
     set((s) => {
-      const theme = s.theme === "dark" ? "light" : "dark";
-      localStorage.setItem("theme", theme);
-      document.documentElement.setAttribute("data-theme", theme);
+      const i = THEMES.indexOf(s.theme);
+      const theme = THEMES[(i + 1) % THEMES.length];
+      applyTheme(theme);
       return { theme };
     }),
+  setTheme: (theme) => { applyTheme(theme); set({ theme }); },
   view: "dashboard",
   selectedProjectId: null,
   openProject: (id) => set({ view: "project", selectedProjectId: id }),
   openDashboard: () => set({ view: "dashboard", selectedProjectId: null }),
   openSites: () => set({ view: "sites", selectedProjectId: null }),
+  gotoSettings: () => set({ view: "settings", selectedProjectId: null }),
+  openHelp: () => set({ view: "help", selectedProjectId: null }),
   refreshKey: 0,
   refresh: () => set((s) => ({ refreshKey: s.refreshKey + 1 })),
+  statusMsg: "",
+  setStatus: (m) => set({ statusMsg: m }),
   newProjectOpen: false,
   newProjectTemplate: null,
   openNewProject: (template = null) => set({ newProjectOpen: true, newProjectTemplate: template }),

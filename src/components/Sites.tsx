@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, Row } from "../lib/api";
-import { Modal } from "./Modal";
+import { confirmDialog, Modal } from "./Modal";
 import AiPanel from "./AiPanel";
 import Workspace from "./Workspace";
-import { BASE_FILES, toSlug } from "../lib/baseTemplate";
+import { useStore } from "../store/useStore";
 
 export default function Sites() {
+  const { openNewProject, pendingSiteRel, consumePendingSite } = useStore();
   const [root, setRoot] = useState("");
   const [sites, setSites] = useState<Row[]>([]);
   const [templates, setTemplates] = useState<Row[]>([]);
   const [active, setActive] = useState<{ rel: string; isTemplate: boolean } | null>(null);
-  const [useTpl, setUseTpl] = useState<Row | null>(null);
-  const [newSite, setNewSite] = useState(false);
+  const [editing, setEditing] = useState<Row | null>(null);
 
   const loadRoot = () => api.getSitesRoot().then((c) => setRoot(c.root));
   const loadAll = () => {
@@ -25,6 +25,15 @@ export default function Sites() {
     loadAll();
   }, []);
 
+  // Po vytvoření projektu otevři jeho web v editoru.
+  useEffect(() => {
+    if (pendingSiteRel) {
+      setActive({ rel: pendingSiteRel, isTemplate: false });
+      consumePendingSite();
+      loadAll();
+    }
+  }, [pendingSiteRel]);
+
   const changeRoot = async () => {
     const picked = await open({ directory: true, multiple: false });
     if (!picked || Array.isArray(picked)) return;
@@ -34,11 +43,36 @@ export default function Sites() {
     setActive(null);
   };
 
+  const addTemplate = async () => {
+    const picked = await open({ directory: true, multiple: false, title: "Vyber složku webu jako šablonu" });
+    if (!picked || Array.isArray(picked)) return;
+    const base = picked.split("/").pop() || "sablona";
+    try {
+      await api.importTemplate(picked, base);
+      loadAll();
+    } catch (e) {
+      await confirmDialog({ title: "Import selhal", message: String(e), confirmLabel: "OK", danger: false });
+    }
+  };
+
+  const deleteSite = async (e: React.MouseEvent, s: Row) => {
+    e.stopPropagation();
+    const ok = await confirmDialog({
+      title: "Smazat web?",
+      message: `Složka „${s.slug}" a všechny její soubory budou nenávratně smazány.`,
+      confirmLabel: "Smazat web",
+      danger: true,
+    });
+    if (!ok) return;
+    await api.deleteSite(s.rel);
+    loadAll();
+  };
+
   if (active && !active.isTemplate) {
     return <Workspace rel={active.rel} onBack={() => { setActive(null); loadAll(); }} />;
   }
   if (active) {
-    return <SiteDetail rel={active.rel} isTemplate={active.isTemplate} onBack={() => { setActive(null); loadAll(); }} onUse={(t) => setUseTpl(t)} />;
+    return <SiteDetail rel={active.rel} isTemplate={active.isTemplate} onBack={() => { setActive(null); loadAll(); }} onUse={(rel) => openNewProject(rel)} />;
   }
 
   return (
@@ -58,148 +92,126 @@ export default function Sites() {
         </div>
       </div>
 
-      <div className="row between" style={{ marginTop: 18 }}>
-        <div className="section-title" style={{ margin: 0 }}>Moje weby (working / git)</div>
-        <button className="primary" onClick={() => setNewSite(true)}>+ Nový web</button>
-      </div>
+      <div className="section-title">Moje weby</div>
       {sites.length === 0 ? (
         <div className="card empty">
-          <div>Zatím žádný pracovní web.</div>
+          <div>Zatím žádný web.</div>
           <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
-            Vyber šablonu níže a klikni <strong>Použít šablonu</strong> — vytvoří se kopie v <code className="kbd">sites/</code>, kterou edituješ a deployuješ.
+            Klikni <strong>+ Nový projekt</strong> (vlevo dole) — vyber šablonu nebo prázdný web. Vznikne tu pracovní web.
           </div>
         </div>
       ) : (
         <div className="site-grid">
           {sites.map((s) => (
-            <button key={s.rel} className="site-card" onClick={() => setActive({ rel: s.rel, isTemplate: false })}>
-              <div className="site-thumb">{s.has_index ? "🌐" : "📁"}</div>
+            <div key={s.rel} className="site-card has-del" onClick={() => setActive({ rel: s.rel, isTemplate: false })}>
+              <div className="site-thumb">
+                {s.icon ? <img src={s.icon} alt="" className="site-icon-img" /> : (s.has_index ? "🌐" : "📁")}
+              </div>
               <div className="site-meta">
-                <div className="site-name">{s.title || s.slug}</div>
+                <div className="site-name">{s.name || s.slug}</div>
                 <div className="muted" style={{ fontSize: 12 }}>{s.slug} · {s.file_count} souborů</div>
               </div>
-            </button>
+              <div className="site-actions">
+                <button className="site-act" title="Upravit" onClick={(e) => { e.stopPropagation(); setEditing(s); }}>✎</button>
+                <button className="site-act danger" title="Smazat web" onClick={(e) => deleteSite(e, s)}>✕</button>
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      <div className="section-title">Šablony webů</div>
-      <div className="muted" style={{ fontSize: 13, marginBottom: 10 }}>
-        Nahlédni do náhledu, stáhni jako ZIP, nebo „Použít" → vznikne tvůj editovatelný web.
+      <div className="row between" style={{ marginTop: 18 }}>
+        <div className="section-title" style={{ margin: 0 }}>Šablony webů</div>
+        <button className="ghost" onClick={addTemplate}>+ Přidat šablonu</button>
       </div>
-      <div className="site-grid">
+      <div className="muted" style={{ fontSize: 13, margin: "6px 0 10px" }}>
+        Posuň vodorovně. „Použít" → otevře Nový projekt s touto šablonou.
+      </div>
+      <div className="tpl-scroll">
         {templates.map((t) => (
-          <div key={t.rel} className="site-card tpl">
-            <button className="site-card-main" onClick={() => setActive({ rel: t.rel, isTemplate: true })}>
-              <div className="site-thumb tpl-thumb">✦</div>
-              <div className="site-meta">
-                <div className="site-name">{t.title || t.slug}</div>
-                <div className="muted" style={{ fontSize: 12 }}>{t.slug}</div>
-              </div>
+          <div key={t.rel} className="tpl-slide">
+            <button className="tpl-slide-main" onClick={() => setActive({ rel: t.rel, isTemplate: true })}>
+              <div className="tpl-slide-thumb">✦</div>
+              <div className="tpl-slide-name">{t.title || t.slug}</div>
+              <div className="muted" style={{ fontSize: 12 }}>{t.slug}</div>
             </button>
-            <button className="mini-use" onClick={() => setUseTpl(t)}>Použít</button>
+            <button className="mini-use" onClick={() => openNewProject(t.rel)}>Použít</button>
           </div>
         ))}
+        {templates.length === 0 && <div className="muted" style={{ padding: 10 }}>Žádné šablony. Přidej přes „+ Přidat šablonu".</div>}
       </div>
 
-      {useTpl && (
-        <UseTemplateModal
-          template={useTpl}
-          onClose={() => setUseTpl(null)}
-          onCreated={(rel) => { setUseTpl(null); loadAll(); setActive({ rel, isTemplate: false }); }}
-        />
-      )}
-
-      {newSite && (
-        <NewSiteModal
-          onClose={() => setNewSite(false)}
-          onCreated={(rel) => { setNewSite(false); loadAll(); setActive({ rel, isTemplate: false }); }}
-        />
+      {editing && (
+        <EditSiteModal site={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); loadAll(); }} />
       )}
     </div>
   );
 }
 
-function NewSiteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (rel: string) => void }) {
-  const [name, setName] = useState("");
+function EditSiteModal({ site, onClose, onSaved }: { site: Row; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(site.name || site.slug || "");
+  const [icon, setIcon] = useState<string>(site.icon || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const slug = toSlug(name);
+
+  const pickIcon = async () => {
+    const picked = await open({ multiple: false, filters: [{ name: "Obrázek", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }] });
+    if (!picked || Array.isArray(picked)) return;
+    try {
+      const dataUrl = await api.readFileBase64(picked);
+      // zmenši na 128px (kromě SVG) → malá ikona
+      if (dataUrl.startsWith("data:image/svg")) { setIcon(dataUrl); return; }
+      const img = new Image();
+      img.onload = () => {
+        const size = 128;
+        const c = document.createElement("canvas");
+        c.width = size; c.height = size;
+        const ctx = c.getContext("2d")!;
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        setIcon(c.toDataURL("image/png"));
+      };
+      img.src = dataUrl;
+    } catch (e: any) { setErr(String(e?.message || e)); }
+  };
 
   const submit = async () => {
-    if (!slug || busy) return;
     setBusy(true); setErr("");
     try {
-      const rel = `sites/${slug}`;
-      // Pokud už existuje index.html, neprepisuj.
-      const existing = await api.listSiteFiles(rel).catch((): string[] => []);
-      if (existing.includes("index.html")) { setErr("Web s tímto názvem už existuje."); setBusy(false); return; }
-      for (const f of BASE_FILES) await api.writeSiteFile(rel, f.path, f.content);
-      onCreated(rel);
-    } catch (e: any) {
-      setErr(String(e)); setBusy(false);
-    }
+      await api.setSiteName(site.rel, name.trim());
+      await api.setSiteIcon(site.rel, icon);
+      onSaved();
+    } catch (e: any) { setErr(String(e?.message || e)); setBusy(false); }
   };
 
   return (
-    <Modal title="Nový web" onClose={onClose}
+    <Modal title="Upravit web" onClose={onClose}
       footer={<>
         <button className="ghost" onClick={onClose}>Zrušit</button>
-        <button className="primary" onClick={submit} disabled={!slug || busy}>{busy ? "Vytvářím…" : "Vytvořit web"}</button>
+        <button className="primary" onClick={submit} disabled={busy || !name.trim()}>{busy ? "Ukládám…" : "Uložit"}</button>
       </>}>
       <div className="field">
-        <label>Název webu</label>
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="např. Moje kavárna" />
+        <label>Název projektu</label>
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
       </div>
-      <div className="muted" style={{ fontSize: 13 }}>
-        Vytvoří <code className="kbd">sites/{slug || "…"}</code> se základními soubory:
-        index.html, style.css, script.js, README.md a složkou assets/. Pak se otevře v editoru.
-      </div>
-      {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
-    </Modal>
-  );
-}
-
-function UseTemplateModal({ template, onClose, onCreated }: { template: Row; onClose: () => void; onCreated: (rel: string) => void }) {
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-
-  const submit = async () => {
-    if (!name.trim() || busy) return;
-    setBusy(true); setErr("");
-    try {
-      const rel = await api.useSiteTemplate(template.rel, name.trim());
-      onCreated(rel);
-    } catch (e: any) {
-      setErr(String(e)); setBusy(false);
-    }
-  };
-
-  return (
-    <Modal
-      title={`Použít šablonu: ${template.title || template.slug}`}
-      onClose={onClose}
-      footer={<>
-        <button className="ghost" onClick={onClose}>Zrušit</button>
-        <button className="primary" onClick={submit} disabled={!name.trim() || busy}>{busy ? "Vytvářím…" : "Vytvořit web"}</button>
-      </>}
-    >
       <div className="field">
-        <label>Název nového webu (slug složky)</label>
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="napr. kavarna-u-lipy" />
+        <label>Ikona webu</label>
+        <div className="row" style={{ gap: 12, alignItems: "center" }}>
+          <div className="site-thumb" style={{ width: 56, height: 56 }}>
+            {icon ? <img src={icon} alt="" className="site-icon-img" /> : "🌐"}
+          </div>
+          <button className="ghost" onClick={pickIcon}>Nahrát obrázek…</button>
+          {icon && <button className="ghost danger" onClick={() => setIcon("")}>Odebrat</button>}
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>PNG/JPG/SVG — zmenší se na 128 px.</div>
       </div>
-      <div className="muted" style={{ fontSize: 13 }}>
-        Vytvoří kopii do <code className="kbd">sites/{(name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")) || "…"}</code>, kterou pak edituješ a pushneš na GitHub.
-      </div>
-      {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
+      {err && <div className="error">{err}</div>}
     </Modal>
   );
 }
 
-function SiteDetail({ rel, isTemplate, onBack, onUse }: { rel: string; isTemplate: boolean; onBack: () => void; onUse: (t: Row) => void }) {
+function SiteDetail({ rel, isTemplate, onBack, onUse }: { rel: string; isTemplate: boolean; onBack: () => void; onUse: (rel: string) => void }) {
   const slug = rel.split("/").pop() || rel;
   const [url, setUrl] = useState("");
   const [files, setFiles] = useState<string[]>([]);
@@ -258,7 +270,7 @@ function SiteDetail({ rel, isTemplate, onBack, onUse }: { rel: string; isTemplat
             </button>
           )}
           {isTemplate
-            ? <button className="primary" onClick={() => onUse({ rel, slug, title: undefined } as any)}>Použít šablonu</button>
+            ? <button className="primary" onClick={() => onUse(rel)}>Použít šablonu</button>
             : <button className="primary" onClick={openLive}>🌍 Otevřít živý web</button>}
         </div>
       </div>

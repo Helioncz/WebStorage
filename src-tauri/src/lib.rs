@@ -1,6 +1,8 @@
 mod crypto;
 mod db;
 mod files;
+mod git;
+mod netlify;
 mod sites;
 mod templates;
 
@@ -199,6 +201,48 @@ fn unlock(password: String, state: State<AppState>) -> Result<(), String> {
 fn lock(state: State<AppState>) {
     let mut g = state.inner.lock().unwrap();
     g.conn = None;
+}
+
+/// Smaze trezor (vault.db + salt) — umozni zalozit novy s jinym heslem.
+/// POZOR: smaze ulozene tokeny/nastaveni; slozky webu (sites/) zustanou.
+#[tauri::command]
+fn reset_vault(state: State<AppState>) -> Result<(), String> {
+    let mut g = state.inner.lock().unwrap();
+    g.conn = None;
+    let _ = fs::remove_file(g.vault_dir.join("vault.db"));
+    let _ = fs::remove_file(g.vault_dir.join("vault.salt"));
+    Ok(())
+}
+
+/// Verze aplikace (z Cargo.toml).
+#[tauri::command]
+fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Zaloha trezoru: zazipuje vault.db + vault.salt do `dest`.
+#[tauri::command]
+fn backup_vault(dest: String, state: State<AppState>) -> Result<(), String> {
+    use std::io::Write as _;
+    let dir = { state.inner.lock().unwrap().vault_dir.clone() };
+    let db = dir.join("vault.db");
+    if !db.exists() {
+        return Err("Trezor zatím neexistuje.".into());
+    }
+    let file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts: zip::write::FileOptions<()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for name in ["vault.db", "vault.salt"] {
+        let path = dir.join(name);
+        if path.exists() {
+            zip.start_file(name, opts).map_err(|e| e.to_string())?;
+            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+            zip.write_all(&bytes).map_err(|e| e.to_string())?;
+        }
+    }
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ----------------------------- Projekty ----------------------------------
@@ -860,10 +904,113 @@ fn site_json(s: &sites::SiteInfo) -> Value {
 }
 
 /// Pracovni weby (sites/) — editujes, verzujes, deployujes.
+/// K webu pripoji `name` (jmeno projektu) z nastaveni, pokud existuje.
 #[tauri::command]
 fn list_sites(state: State<AppState>) -> Vec<Value> {
     let root = state.sites_root.lock().unwrap().clone();
-    sites::list_in(&root, "sites").iter().map(site_json).collect()
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref();
+    sites::list_in(&root, "sites")
+        .iter()
+        .map(|s| {
+            let mut v = site_json(s);
+            if let Some(c) = conn {
+                if let Some(name) = get_setting_kv(c, &format!("sitename:{}", s.rel)) {
+                    if !name.is_empty() {
+                        v["name"] = serde_json::json!(name);
+                    }
+                }
+                if let Some(icon) = get_setting_kv(c, &format!("siteicon:{}", s.rel)) {
+                    if !icon.is_empty() {
+                        v["icon"] = serde_json::json!(icon);
+                    }
+                }
+            }
+            v
+        })
+        .collect()
+}
+
+/// Ulozi zobrazovane jmeno webu (= jmeno projektu).
+#[tauri::command]
+fn set_site_name(rel: String, name: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, &format!("sitename:{rel}"), &name)
+}
+
+/// Ulozi vlastni ikonu webu (data URL). Prazdne = smazat.
+#[tauri::command]
+fn set_site_icon(rel: String, data_url: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, &format!("siteicon:{rel}"), &data_url)
+}
+
+/// Minimalni base64 (standard alphabet).
+fn b64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        out.push(T[(b0 >> 2) as usize] as char);
+        out.push(T[(((b0 & 0x3) << 4) | (b1 >> 4)) as usize] as char);
+        out.push(if chunk.len() > 1 { T[(((b1 & 0xf) << 2) | (b2 >> 6)) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 2 { T[(b2 & 0x3f) as usize] as char } else { '=' });
+    }
+    out
+}
+
+/// Nacte obrazek z disku jako data URL (pro upload ikony).
+#[tauri::command]
+fn read_file_base64(path: String) -> Result<String, String> {
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err("Obrázek je příliš velký (max 8 MB).".into());
+    }
+    let mime = match std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .as_str()
+    {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream",
+    };
+    Ok(format!("data:{};base64,{}", mime, b64_encode(&bytes)))
+}
+
+/// Importuje slozku z disku jako novou sablonu do site-templates/.
+#[tauri::command]
+fn import_template(src_path: String, name: String, state: State<AppState>) -> Result<String, String> {
+    let slug: String = name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        return Err("Zadej nazev sablony.".into());
+    }
+    let src = PathBuf::from(&src_path);
+    if !src.is_dir() {
+        return Err("Vyber slozku se soubory webu.".into());
+    }
+    let root = state.sites_root.lock().unwrap().clone();
+    let dst = root.join("site-templates").join(&slug);
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    sites::copy_dir(&src, &dst)?;
+    Ok(format!("site-templates/{slug}"))
 }
 
 /// Knihovna sablon (site-templates/) — jen ke cteni / kopirovani.
@@ -920,6 +1067,26 @@ fn write_site_file(rel: String, path: String, content: String, state: State<AppS
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(&target, content).map_err(|e| e.to_string())
+}
+
+/// Binarne zkopiruje soubor z disku do webu (default do assets/). Vrati rel cestu.
+#[tauri::command]
+fn import_asset(rel: String, src_path: String, subdir: Option<String>, state: State<AppState>) -> Result<String, String> {
+    let src = PathBuf::from(&src_path);
+    if !src.is_file() {
+        return Err("Soubor nenalezen.".into());
+    }
+    let fname = src
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .ok_or("Neplatny nazev souboru.")?;
+    let sub = subdir.unwrap_or_else(|| "assets".into());
+    let sub = sub.trim_matches('/');
+    let root = state.sites_root.lock().unwrap().clone();
+    let dir = root.join(&rel).join(sub);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    fs::copy(&src, dir.join(&fname)).map_err(|e| e.to_string())?;
+    Ok(if sub.is_empty() { fname } else { format!("{sub}/{fname}") })
 }
 
 /// Smaze cely web (slozku pod sites/). Guard: jen uvnitr sites/.
@@ -1072,6 +1239,301 @@ fn set_repo_link(rel: String, value: String, state: State<AppState>) -> Result<(
     set_setting_kv(conn, &format!("github:{rel}"), &value)
 }
 
+// ----------------------------- Lokální git (GitHub Desktop) --------------
+
+/// Vrati (owner, repo, branch, token, dir) pro dany web z trezoru.
+fn git_ctx(state: &State<AppState>, rel: &str) -> Result<(String, String, String, String, PathBuf), String> {
+    let dir = state.sites_root.lock().unwrap().clone().join(rel);
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    let token = get_setting_kv(conn, "github_token").unwrap_or_default();
+    if token.is_empty() {
+        return Err("GitHub není připojen.".into());
+    }
+    let raw = get_setting_kv(conn, &format!("github:{rel}")).ok_or("Web nemá propojený repozitář.")?;
+    let v: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let owner = v.get("owner").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let repo = v.get("repo").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let branch = v.get("branch").and_then(|x| x.as_str()).unwrap_or("main").to_string();
+    Ok((owner, repo, branch, token, dir))
+}
+
+#[tauri::command]
+fn git_available() -> bool {
+    git::available()
+}
+
+#[tauri::command]
+fn git_is_repo(rel: String, state: State<AppState>) -> bool {
+    let dir = state.sites_root.lock().unwrap().clone().join(&rel);
+    git::is_repo(&dir)
+}
+
+/// Propojí lokální složku s GitHub repem (skutečný git repo pro GitHub Desktop).
+#[tauri::command]
+fn git_link(rel: String, state: State<AppState>) -> Result<(), String> {
+    let (owner, repo, branch, token, dir) = git_ctx(&state, &rel)?;
+    git::link(&dir, &owner, &repo, &branch, &token)
+}
+
+#[tauri::command]
+fn git_commit_push(rel: String, message: String, state: State<AppState>) -> Result<String, String> {
+    let (owner, repo, branch, token, dir) = git_ctx(&state, &rel)?;
+    git::commit_push(&dir, &owner, &repo, &branch, &token, &message)
+}
+
+/// Inicializuje lokalni repo a pushne VSECHNY soubory (i binarni) na prazdny remote.
+#[tauri::command]
+fn git_init_push(rel: String, message: String, state: State<AppState>) -> Result<String, String> {
+    let (owner, repo, branch, token, dir) = git_ctx(&state, &rel)?;
+    git::init_push(&dir, &owner, &repo, &branch, &token, &message)
+}
+
+// ----------------------------- Netlify deploy ----------------------------
+
+#[tauri::command]
+fn set_netlify_token(token: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, "netlify_token", &token)
+}
+
+#[tauri::command]
+fn netlify_has_token(state: State<AppState>) -> bool {
+    let g = state.inner.lock().unwrap();
+    g.conn
+        .as_ref()
+        .and_then(|c| get_setting_kv(c, "netlify_token"))
+        .map(|t| !t.is_empty())
+        .unwrap_or(false)
+}
+
+/// Publikuje web na Netlify (vytvoří site při prvním deployi, pak nahraje ZIP).
+/// Vrátí živou URL.
+#[tauri::command]
+fn netlify_deploy(rel: String, state: State<AppState>) -> Result<String, String> {
+    let root = state.sites_root.lock().unwrap().clone();
+    let (token, mut site_id) = {
+        let g = state.inner.lock().unwrap();
+        let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+        let token = get_setting_kv(conn, "netlify_token").unwrap_or_default();
+        if token.is_empty() {
+            return Err("Netlify není připojené (chybí token).".into());
+        }
+        let site_id = get_setting_kv(conn, &format!("netlify:{rel}")).unwrap_or_default();
+        (token, site_id)
+    };
+
+    let slug = rel.split('/').next_back().unwrap_or("web").to_string();
+
+    // 1) site (vytvoř při prvním deployi)
+    if site_id.is_empty() {
+        let name = format!("{}-{}", slug, &new_id()[..6]);
+        let (id, _url, _admin) = netlify::create_site(&token, &name)?;
+        site_id = id;
+        let g = state.inner.lock().unwrap();
+        if let Some(conn) = g.conn.as_ref() {
+            let _ = set_setting_kv(conn, &format!("netlify:{rel}"), &site_id);
+        }
+    }
+
+    // 2) ZIP složky do temp
+    let tmp = std::env::temp_dir().join(format!("hangar-deploy-{slug}.zip"));
+    sites::zip_site(&root, &rel, &tmp)?;
+
+    // 3) deploy
+    let live = netlify::deploy_zip(&token, &site_id, &tmp)?;
+    let _ = fs::remove_file(&tmp);
+
+    // 4) ulož živou URL k webu
+    if !live.is_empty() {
+        let g = state.inner.lock().unwrap();
+        if let Some(conn) = g.conn.as_ref() {
+            let _ = set_setting_kv(conn, &format!("deploy:{rel}"), &live);
+        }
+    }
+    Ok(live)
+}
+
+#[tauri::command]
+fn git_pull(rel: String, state: State<AppState>) -> Result<(), String> {
+    let (owner, repo, branch, token, dir) = git_ctx(&state, &rel)?;
+    git::pull(&dir, &owner, &repo, &branch, &token)
+}
+
+/// Detekuje nainstalované Git/editor aplikace (v /Applications a ~/Applications).
+#[tauri::command]
+fn detect_apps() -> Vec<Value> {
+    let candidates = [
+        ("GitHub Desktop", "GitHub Desktop.app"),
+        ("Visual Studio Code", "Visual Studio Code.app"),
+        ("Cursor", "Cursor.app"),
+        ("Zed", "Zed.app"),
+        ("Sublime Text", "Sublime Text.app"),
+        ("Fork", "Fork.app"),
+        ("Sourcetree", "Sourcetree.app"),
+        ("Tower", "Tower.app"),
+        ("Nova", "Nova.app"),
+        ("WebStorm", "WebStorm.app"),
+    ];
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dirs = ["/Applications".to_string(), format!("{home}/Applications")];
+    let mut out = Vec::new();
+    for (name, file) in candidates {
+        for d in &dirs {
+            let p = format!("{d}/{file}");
+            if std::path::Path::new(&p).exists() {
+                out.push(serde_json::json!({ "name": name, "path": p }));
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Otevře složku webu v zadané aplikaci (`open -a`). Prázdné app = jen Finder.
+#[tauri::command]
+fn open_in_app(rel: String, app: String, state: State<AppState>) -> Result<(), String> {
+    let dir = state.sites_root.lock().unwrap().clone().join(&rel);
+    let mut cmd = std::process::Command::new("open");
+    if app.trim().is_empty() {
+        cmd.arg(&dir);
+    } else {
+        cmd.arg("-a").arg(&app).arg(&dir);
+    }
+    let status = cmd.status().map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Aplikaci „{app}\" se nepodařilo otevřít."))
+    }
+}
+
+#[tauri::command]
+fn get_open_app(state: State<AppState>) -> String {
+    let g = state.inner.lock().unwrap();
+    g.conn
+        .as_ref()
+        .and_then(|c| get_setting_kv(c, "open_app"))
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn set_open_app(app: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, "open_app", &app)
+}
+
+/// Otevře složku webu v GitHub Desktop (zpětná kompatibilita).
+#[tauri::command]
+fn open_in_github_desktop(rel: String, state: State<AppState>) -> Result<(), String> {
+    open_in_app(rel, "GitHub Desktop".into(), state)
+}
+
+// ----------------------------- Sync server -------------------------------
+// Malý cloud server přijímá GitHub webhooky. Desktop se ho ptá, jestli má repo
+// nové commity; samotný pull stále běží lokálně přes git.
+
+#[derive(serde::Serialize)]
+struct SyncConfigStatus {
+    url: String,
+    has_token: bool,
+}
+
+#[tauri::command]
+fn get_sync_config(state: State<AppState>) -> SyncConfigStatus {
+    let g = state.inner.lock().unwrap();
+    let conn = match g.conn.as_ref() {
+        Some(c) => c,
+        None => {
+            return SyncConfigStatus {
+                url: String::new(),
+                has_token: false,
+            }
+        }
+    };
+    SyncConfigStatus {
+        url: get_setting_kv(conn, "sync_server_url").unwrap_or_default(),
+        has_token: get_setting_kv(conn, "sync_server_token")
+            .map(|t| !t.is_empty())
+            .unwrap_or(false),
+    }
+}
+
+#[tauri::command]
+fn set_sync_config(url: String, token: Option<String>, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, "sync_server_url", url.trim().trim_end_matches('/'))?;
+    if let Some(t) = token {
+        if !t.trim().is_empty() {
+            set_setting_kv(conn, "sync_server_token", t.trim())?;
+        }
+    }
+    Ok(())
+}
+
+fn sync_ctx(state: &State<AppState>, rel: &str) -> Result<(String, String, String, String, i64), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    let url = get_setting_kv(conn, "sync_server_url").unwrap_or_default();
+    let token = get_setting_kv(conn, "sync_server_token").unwrap_or_default();
+    if url.is_empty() || token.is_empty() {
+        return Err("Sync server není nastavený.".into());
+    }
+    let raw = get_setting_kv(conn, &format!("github:{rel}")).ok_or("Web nemá propojený GitHub repozitář.")?;
+    let v: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let owner = v.get("owner").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let repo = v.get("repo").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    if owner.is_empty() || repo.is_empty() {
+        return Err("Propojení GitHub repozitáře je neúplné.".into());
+    }
+    let last_seen = get_setting_kv(conn, &format!("sync_last_event:{rel}"))
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    Ok((url, token, owner, repo, last_seen))
+}
+
+#[tauri::command]
+fn sync_check_latest(rel: String, state: State<AppState>) -> Result<Value, String> {
+    let (url, token, owner, repo, last_seen) = sync_ctx(&state, &rel)?;
+    let endpoint = format!("{url}/sync/latest?owner={owner}&repo={repo}");
+    let resp = ureq::get(&endpoint)
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Accept", "application/json")
+        .set("User-Agent", "ProjectHangar")
+        .timeout(std::time::Duration::from_secs(20))
+        .call();
+
+    let body = match resp {
+        Ok(r) => r.into_string().map_err(|e| e.to_string())?,
+        Err(ureq::Error::Status(code, r)) => {
+            let t = r.into_string().unwrap_or_default();
+            return Err(format!("Sync server {code}: {t}"));
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    let parsed: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let latest = parsed.get("latest").cloned().unwrap_or(Value::Null);
+    let latest_id = latest.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+    Ok(serde_json::json!({
+        "owner": owner,
+        "repo": repo,
+        "last_seen_id": last_seen,
+        "latest_id": latest_id,
+        "changed": latest_id > last_seen,
+        "latest": latest,
+    }))
+}
+
+#[tauri::command]
+fn sync_mark_seen(rel: String, event_id: i64, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, &format!("sync_last_event:{rel}"), &event_id.to_string())
+}
+
 // ----------------------------- AI asistent -------------------------------
 // Provider-agnosticka: Rust jen prepošle HTTP POST (obejde CORS webview),
 // klic se uklada sifrovane v trezoru. Agentni smycka bezi ve frontendu.
@@ -1160,6 +1622,9 @@ pub fn run() {
             initialize,
             unlock,
             lock,
+            reset_vault,
+            app_version,
+            backup_vault,
             list_projects,
             get_project,
             create_project,
@@ -1191,6 +1656,11 @@ pub fn run() {
             get_sites_root,
             set_sites_root,
             list_sites,
+            set_site_name,
+            set_site_icon,
+            read_file_base64,
+            import_asset,
+            import_template,
             list_site_templates,
             use_site_template,
             list_site_files,
@@ -1212,6 +1682,24 @@ pub fn run() {
             github_api,
             get_repo_link,
             set_repo_link,
+            git_available,
+            git_is_repo,
+            git_link,
+            git_commit_push,
+            git_init_push,
+            set_netlify_token,
+            netlify_has_token,
+            netlify_deploy,
+            git_pull,
+            open_in_github_desktop,
+            detect_apps,
+            open_in_app,
+            get_open_app,
+            set_open_app,
+            get_sync_config,
+            set_sync_config,
+            sync_check_latest,
+            sync_mark_seen,
         ])
         .run(tauri::generate_context!())
         .expect("chyba pri spousteni Tauri aplikace");

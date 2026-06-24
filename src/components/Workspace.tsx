@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import Editor from "@monaco-editor/react";
 import { api } from "../lib/api";
 import { languageFor } from "../lib/monaco";
 import { Modal, confirmDialog } from "./Modal";
 import AiPanel from "./AiPanel";
 import GitHubPanel from "./GitHubPanel";
+import DeployModal from "./DeployModal";
 import { useStore } from "../store/useStore";
+
+const IMAGE_EXT = ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "avif"];
+const isImage = (p: string) => IMAGE_EXT.includes((p.split(".").pop() || "").toLowerCase());
 
 // Pracovní workspace pro web v sites/: strom souborů + Monaco editor + náhled/AI.
 export default function Workspace({ rel, onBack }: { rel: string; onBack: () => void }) {
@@ -26,6 +31,8 @@ export default function Workspace({ rel, onBack }: { rel: string; onBack: () => 
   const [deployUrl, setDeployUrl] = useState("");
   const [editingDeploy, setEditingDeploy] = useState(false);
   const [github, setGithub] = useState(false);
+  const [deploy, setDeploy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const contentRef = useRef("");
 
   const flash = (m: string) => { setStatus(m); setTimeout(() => setStatus(null), 2500); };
@@ -94,6 +101,34 @@ export default function Workspace({ rel, onBack }: { rel: string; onBack: () => 
     setReloadKey((k) => k + 1);
   };
 
+  // Nahrání obrázků/médií (do assets/) — binárně bezpečné, přidá se do gitu při push.
+  const importPaths = async (paths: string[]) => {
+    let last = "";
+    for (const p of paths) {
+      try { last = await api.importAsset(rel, p); } catch (e) { console.error(e); }
+    }
+    await loadFiles();
+    setReloadKey((k) => k + 1);
+    if (last) { openFile(last); flash(`Nahráno: ${last}`); }
+  };
+
+  const uploadImage = async () => {
+    const picked = await open({ multiple: true, filters: [{ name: "Obrázek / média", extensions: IMAGE_EXT.concat(["mp4", "webm", "pdf", "woff2", "woff"]) }] });
+    if (!picked) return;
+    importPaths(Array.isArray(picked) ? picked : [picked]);
+  };
+
+  // Drag & drop souborů z Finderu do editoru
+  useEffect(() => {
+    const un = getCurrentWebview().onDragDropEvent((event) => {
+      const t = event.payload.type;
+      if (t === "over" || t === "enter") setDragOver(true);
+      else if (t === "leave") setDragOver(false);
+      else if (t === "drop") { setDragOver(false); importPaths(event.payload.paths); }
+    });
+    return () => { un.then((f) => f()); };
+  }, [rel]);
+
   const downloadZip = async () => {
     const dest = await save({ defaultPath: `${slug}.zip`, filters: [{ name: "ZIP", extensions: ["zip"] }] });
     if (!dest) return;
@@ -118,6 +153,18 @@ export default function Workspace({ rel, onBack }: { rel: string; onBack: () => 
     return () => window.removeEventListener("keydown", h);
   });
 
+  // Autosave: po 1,2 s nečinnosti ulož a obnov náhled.
+  useEffect(() => {
+    if (!dirty || !active || isImage(active)) return;
+    const t = setTimeout(async () => {
+      await api.writeSiteFile(rel, active, contentRef.current);
+      setDirty(false);
+      setReloadKey((k) => k + 1);
+      flash("Auto-uloženo ✓");
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [content, dirty, active, rel]);
+
   return (
     <div className="ws">
       <div className="ws-bar">
@@ -125,6 +172,7 @@ export default function Workspace({ rel, onBack }: { rel: string; onBack: () => 
         <strong className="ws-title">{slug}{dirty ? " •" : ""}</strong>
         <span className="spacer" />
         <button className="ghost" onClick={() => setNewFile(true)}>+ Soubor</button>
+        <button className="ghost" onClick={uploadImage} title="Nahrát obrázek/médium do assets/">🖼 Obrázek</button>
         <button className="primary" onClick={saveFile} disabled={!dirty}>💾 Uložit</button>
         <button className="ghost" onClick={refreshFromDisk} title="Načíst z disku (po externí změně)">⟳ Z disku</button>
         <div className="seg">
@@ -134,7 +182,8 @@ export default function Workspace({ rel, onBack }: { rel: string; onBack: () => 
         <button className="ghost" onClick={() => setGithub(true)} title="GitHub">⎇ GitHub</button>
         <button className="ghost" onClick={() => api.openSiteFolder(rel)}>Složka</button>
         <button className="ghost" onClick={downloadZip}>⬇ ZIP</button>
-        <button className="primary" onClick={openLive}>🌍 Živý web</button>
+        <button className="primary" onClick={() => setDeploy(true)}>🚀 Publikovat</button>
+        <button className="ghost" onClick={openLive} title="Otevřít živou adresu">🌍</button>
       </div>
 
       {status && <div className="ws-status">{status}</div>}
@@ -158,20 +207,29 @@ export default function Workspace({ rel, onBack }: { rel: string; onBack: () => 
           {files.length === 0 && <div className="muted" style={{ padding: 10, fontSize: 13 }}>Žádné soubory.</div>}
         </div>
 
-        <div className="ws-editor">
-          {active ? (
+        <div className={"ws-editor" + (dragOver ? " dragover" : "")}>
+          {active && isImage(active) ? (
+            <div className="ws-img-view">
+              <img src={`${previewUrl}${active}?v=${reloadKey}`} alt={active} />
+              <div className="ws-img-meta">
+                <code className="kbd">{active}</code>
+                <button className="ghost" onClick={() => { navigator.clipboard.writeText(active); flash("Cesta zkopírována"); }}>Kopírovat cestu</button>
+              </div>
+            </div>
+          ) : active ? (
             <Editor
               height="100%"
               path={active}
               language={languageFor(active)}
               value={content}
-              theme={theme === "dark" ? "vs-dark" : "light"}
+              theme={theme === "light" ? "light" : "vs-dark"}
               onChange={(v) => { contentRef.current = v ?? ""; setContent(v ?? ""); setDirty(true); }}
               options={{ minimap: { enabled: false }, fontSize: 13, tabSize: 2, wordWrap: "on", scrollBeyondLastLine: false, automaticLayout: true }}
             />
           ) : (
-            <div className="muted" style={{ padding: 20 }}>Vyber soubor vlevo.</div>
+            <div className="muted" style={{ padding: 20 }}>Vyber soubor vlevo, nebo přetáhni obrázek sem.</div>
           )}
+          {dragOver && <div className="ws-drop-hint">Pusť soubory — nahrají se do assets/</div>}
         </div>
 
         <div className="ws-right">
@@ -197,6 +255,10 @@ export default function Workspace({ rel, onBack }: { rel: string; onBack: () => 
 
       {github && (
         <GitHubPanel rel={rel} slug={slug} onClose={() => setGithub(false)} onPulled={() => refreshFromDisk()} />
+      )}
+
+      {deploy && (
+        <DeployModal rel={rel} onClose={() => setDeploy(false)} onDeployed={(url) => { setDeployUrl(url); flash("Publikováno ✓"); }} />
       )}
 
       {newFile && (
