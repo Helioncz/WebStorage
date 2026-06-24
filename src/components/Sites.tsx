@@ -3,6 +3,8 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, Row } from "../lib/api";
 import { Modal } from "./Modal";
 import AiPanel from "./AiPanel";
+import Workspace from "./Workspace";
+import { BASE_FILES, toSlug } from "../lib/baseTemplate";
 
 export default function Sites() {
   const [root, setRoot] = useState("");
@@ -10,6 +12,7 @@ export default function Sites() {
   const [templates, setTemplates] = useState<Row[]>([]);
   const [active, setActive] = useState<{ rel: string; isTemplate: boolean } | null>(null);
   const [useTpl, setUseTpl] = useState<Row | null>(null);
+  const [newSite, setNewSite] = useState(false);
 
   const loadRoot = () => api.getSitesRoot().then((c) => setRoot(c.root));
   const loadAll = () => {
@@ -31,6 +34,9 @@ export default function Sites() {
     setActive(null);
   };
 
+  if (active && !active.isTemplate) {
+    return <Workspace rel={active.rel} onBack={() => { setActive(null); loadAll(); }} />;
+  }
   if (active) {
     return <SiteDetail rel={active.rel} isTemplate={active.isTemplate} onBack={() => { setActive(null); loadAll(); }} onUse={(t) => setUseTpl(t)} />;
   }
@@ -52,7 +58,10 @@ export default function Sites() {
         </div>
       </div>
 
-      <div className="section-title">Moje weby (working / git)</div>
+      <div className="row between" style={{ marginTop: 18 }}>
+        <div className="section-title" style={{ margin: 0 }}>Moje weby (working / git)</div>
+        <button className="primary" onClick={() => setNewSite(true)}>+ Nový web</button>
+      </div>
       {sites.length === 0 ? (
         <div className="card empty">
           <div>Zatím žádný pracovní web.</div>
@@ -100,7 +109,55 @@ export default function Sites() {
           onCreated={(rel) => { setUseTpl(null); loadAll(); setActive({ rel, isTemplate: false }); }}
         />
       )}
+
+      {newSite && (
+        <NewSiteModal
+          onClose={() => setNewSite(false)}
+          onCreated={(rel) => { setNewSite(false); loadAll(); setActive({ rel, isTemplate: false }); }}
+        />
+      )}
     </div>
+  );
+}
+
+function NewSiteModal({ onClose, onCreated }: { onClose: () => void; onCreated: (rel: string) => void }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const slug = toSlug(name);
+
+  const submit = async () => {
+    if (!slug || busy) return;
+    setBusy(true); setErr("");
+    try {
+      const rel = `sites/${slug}`;
+      // Pokud už existuje index.html, neprepisuj.
+      const existing = await api.listSiteFiles(rel).catch((): string[] => []);
+      if (existing.includes("index.html")) { setErr("Web s tímto názvem už existuje."); setBusy(false); return; }
+      for (const f of BASE_FILES) await api.writeSiteFile(rel, f.path, f.content);
+      onCreated(rel);
+    } catch (e: any) {
+      setErr(String(e)); setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Nový web" onClose={onClose}
+      footer={<>
+        <button className="ghost" onClick={onClose}>Zrušit</button>
+        <button className="primary" onClick={submit} disabled={!slug || busy}>{busy ? "Vytvářím…" : "Vytvořit web"}</button>
+      </>}>
+      <div className="field">
+        <label>Název webu</label>
+        <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="např. Moje kavárna" />
+      </div>
+      <div className="muted" style={{ fontSize: 13 }}>
+        Vytvoří <code className="kbd">sites/{slug || "…"}</code> se základními soubory:
+        index.html, style.css, script.js, README.md a složkou assets/. Pak se otevře v editoru.
+      </div>
+      {err && <div className="error" style={{ marginTop: 8 }}>{err}</div>}
+    </Modal>
   );
 }
 

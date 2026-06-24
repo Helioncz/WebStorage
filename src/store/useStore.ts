@@ -14,6 +14,15 @@ interface AppStore {
   openSites: () => void;
   refreshKey: number;
   refresh: () => void;
+  // Nový projekt (web) — globální modal
+  newProjectOpen: boolean;
+  newProjectTemplate: string | null;
+  openNewProject: (template?: string | null) => void;
+  closeNewProject: () => void;
+  // Otevření konkrétního webu v editoru po vytvoření
+  pendingSiteRel: string | null;
+  openSiteInWorkspace: (rel: string) => void;
+  consumePendingSite: () => void;
 }
 
 const initialTheme = (): "dark" | "light" =>
@@ -37,4 +46,11 @@ export const useStore = create<AppStore>((set) => ({
   openSites: () => set({ view: "sites", selectedProjectId: null }),
   refreshKey: 0,
   refresh: () => set((s) => ({ refreshKey: s.refreshKey + 1 })),
+  newProjectOpen: false,
+  newProjectTemplate: null,
+  openNewProject: (template = null) => set({ newProjectOpen: true, newProjectTemplate: template }),
+  closeNewProject: () => set({ newProjectOpen: false, newProjectTemplate: null }),
+  pendingSiteRel: null,
+  openSiteInWorkspace: (rel) => set({ view: "sites", selectedProjectId: null, pendingSiteRel: rel }),
+  consumePendingSite: () => set({ pendingSiteRel: null }),
 }));

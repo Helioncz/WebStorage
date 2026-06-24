@@ -92,6 +92,9 @@ export const api = {
     invoke<string>("read_site_file", { rel, path }),
   writeSiteFile: (rel: string, path: string, content: string) =>
     invoke<void>("write_site_file", { rel, path, content }),
+  deleteSiteFile: (rel: string, path: string) =>
+    invoke<void>("delete_site_file", { rel, path }),
+  deleteSite: (rel: string) => invoke<void>("delete_site", { rel }),
   sitePreviewUrl: (rel: string) => invoke<string>("site_preview_url", { rel }),
   openSiteFolder: (rel: string) => invoke<void>("open_site_folder", { rel }),
   exportSiteZip: (rel: string, dest: string) =>
@@ -105,6 +108,14 @@ export const api = {
   setAiConfig: (config: AiConfig) => invoke<void>("set_ai_config", { config }),
   aiHttpPost: (url: string, headers: Record<string, string>, body: string) =>
     invoke<{ status: number; body: string }>("ai_http_post", { url, headers, body }),
+
+  // GitHub (token jen v backendu)
+  setGithubToken: (token: string) => invoke<void>("set_github_token", { token }),
+  githubHasToken: () => invoke<boolean>("github_has_token"),
+  githubApi: (method: string, path: string, body?: string) =>
+    invoke<{ status: number; body: string }>("github_api", { method, path, body }),
+  getRepoLink: (rel: string) => invoke<string | null>("get_repo_link", { rel }),
+  setRepoLink: (rel: string, value: string) => invoke<void>("set_repo_link", { rel, value }),
 
   // Historie, hledani, dashboard
   listEvents: (projectId: string) => invoke<Row[]>("list_events", { projectId }),

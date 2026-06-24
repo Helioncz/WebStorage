@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
 import ProjectDetail from "./components/ProjectDetail";
 import Sites from "./components/Sites";
+import NewProjectModal from "./components/NewProjectModal";
 import { ConfirmHost } from "./components/Modal";
 
 export default function App() {
@@ -28,6 +29,7 @@ export default function App() {
           <Dashboard />
         )}
       </main>
+      <NewProjectModal />
       <ConfirmHost />
     </div>
   );

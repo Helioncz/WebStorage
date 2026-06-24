@@ -922,6 +922,34 @@ fn write_site_file(rel: String, path: String, content: String, state: State<AppS
     fs::write(&target, content).map_err(|e| e.to_string())
 }
 
+/// Smaze cely web (slozku pod sites/). Guard: jen uvnitr sites/.
+#[tauri::command]
+fn delete_site(rel: String, state: State<AppState>) -> Result<(), String> {
+    if !rel.starts_with("sites/") || rel.contains("..") {
+        return Err("Smazat lze jen pracovni web (sites/).".into());
+    }
+    let root = state.sites_root.lock().unwrap().clone();
+    let dir = root.join(&rel);
+    if dir.is_dir() {
+        fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_site_file(rel: String, path: String, state: State<AppState>) -> Result<(), String> {
+    let root = state.sites_root.lock().unwrap().clone();
+    // Ochrana proti traversal: cesta nesmi obsahovat "..".
+    if path.split(['/', '\\']).any(|s| s == "..") {
+        return Err("Neplatna cesta.".into());
+    }
+    let target = root.join(&rel).join(&path);
+    if target.is_file() {
+        fs::remove_file(&target).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// URL pro live preview v iframe (rel = "sites/foo" nebo "site-templates/bar").
 #[tauri::command]
 fn site_preview_url(rel: String, state: State<AppState>) -> String {
@@ -961,6 +989,87 @@ fn set_deploy_url(rel: String, url: String, state: State<AppState>) -> Result<()
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     tauri_plugin_opener::open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+// ----------------------------- GitHub ------------------------------------
+// Desktop MVP: REST API pres osobni token (PAT). Token je sifrovany v trezoru
+// a NIKDY se neposila do frontendu — vsechna volani injektuji token v Rustu.
+
+#[tauri::command]
+fn set_github_token(token: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, "github_token", &token)
+}
+
+#[tauri::command]
+fn github_has_token(state: State<AppState>) -> bool {
+    let g = state.inner.lock().unwrap();
+    g.conn
+        .as_ref()
+        .and_then(|c| get_setting_kv(c, "github_token"))
+        .map(|t| !t.is_empty())
+        .unwrap_or(false)
+}
+
+/// Genericky GitHub API request. Method = GET/POST/PATCH/PUT/DELETE.
+/// path je relativni ("/user", "/repos/...") nebo absolutni URL.
+#[tauri::command]
+fn github_api(
+    method: String,
+    path: String,
+    body: Option<String>,
+    state: State<AppState>,
+) -> Result<Value, String> {
+    let token = {
+        let g = state.inner.lock().unwrap();
+        let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+        get_setting_kv(conn, "github_token").unwrap_or_default()
+    };
+    if token.is_empty() {
+        return Err("GitHub není připojen (chybí token).".into());
+    }
+    let url = if path.starts_with("http") {
+        path
+    } else {
+        format!("https://api.github.com{path}")
+    };
+    let req = ureq::request(&method, &url)
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Accept", "application/vnd.github+json")
+        .set("User-Agent", "ProjectHangar")
+        .set("X-GitHub-Api-Version", "2022-11-28")
+        .timeout(std::time::Duration::from_secs(60));
+    let resp = match body {
+        Some(b) => req.send_string(&b),
+        None => req.call(),
+    };
+    match resp {
+        Ok(r) => {
+            let s = r.status();
+            let t = r.into_string().map_err(|e| e.to_string())?;
+            Ok(serde_json::json!({ "status": s, "body": t }))
+        }
+        Err(ureq::Error::Status(code, r)) => {
+            let t = r.into_string().unwrap_or_default();
+            Ok(serde_json::json!({ "status": code, "body": t }))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Propojeni webu (rel) s repozitarem — ulozeno jako JSON v settings.
+#[tauri::command]
+fn get_repo_link(rel: String, state: State<AppState>) -> Option<String> {
+    let g = state.inner.lock().unwrap();
+    g.conn.as_ref().and_then(|c| get_setting_kv(c, &format!("github:{rel}")))
+}
+
+#[tauri::command]
+fn set_repo_link(rel: String, value: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    set_setting_kv(conn, &format!("github:{rel}"), &value)
 }
 
 // ----------------------------- AI asistent -------------------------------
@@ -1087,6 +1196,8 @@ pub fn run() {
             list_site_files,
             read_site_file,
             write_site_file,
+            delete_site_file,
+            delete_site,
             site_preview_url,
             open_site_folder,
             export_site_zip,
@@ -1096,6 +1207,11 @@ pub fn run() {
             ai_http_post,
             get_ai_config,
             set_ai_config,
+            set_github_token,
+            github_has_token,
+            github_api,
+            get_repo_link,
+            set_repo_link,
         ])
         .run(tauri::generate_context!())
         .expect("chyba pri spousteni Tauri aplikace");
