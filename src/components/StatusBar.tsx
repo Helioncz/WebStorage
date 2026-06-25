@@ -10,11 +10,6 @@ export default function StatusBar() {
   const [netlify, setNetlify] = useState(false);
   const [version, setVersion] = useState("");
 
-  const user = (() => {
-    try { return localStorage.getItem("displayName") || JSON.parse(localStorage.getItem("hangar_remember") || "{}").u || "Lokální uživatel"; }
-    catch { return localStorage.getItem("displayName") || "Lokální uživatel"; }
-  })();
-
   useEffect(() => {
     gh.githubLogin().then(setGhLogin).catch(() => setGhLogin(null));
     api.netlifyHasToken().then(setNetlify).catch(() => setNetlify(false));
@@ -22,13 +17,11 @@ export default function StatusBar() {
   }, [refreshKey]);
 
   const VIEW_LABEL: Record<string, string> = {
-    dashboard: "Přehled", project: "Projekt", sites: "Weby", settings: "Nastavení", help: "Nápověda",
+    dashboard: "Přehled", project: "Projekt", sites: "Weby", settings: "Nastavení", help: "Nápověda", redesign: "Import & Redesign",
   };
 
   return (
     <div className="statusbar">
-      <span className="sb-item">👤 {user}</span>
-      <span className="sb-sep">·</span>
       <span className="sb-item" title="GitHub připojení">
         <span className={"sb-dot " + (ghLogin ? "on" : "off")} /> GitHub: {ghLogin || "—"}
       </span>

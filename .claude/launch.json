@@ -2,6 +2,12 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "landing",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["landing/serve.mjs"],
+      "port": 5530
+    },
+    {
       "name": "website",
       "runtimeExecutable": "/opt/homebrew/bin/node",
       "runtimeArgs": ["website/serve.mjs"],

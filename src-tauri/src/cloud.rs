@@ -1,10 +1,8 @@
-// Cloud sync přes Supabase — end-to-end šifrovaný snapshot celého trezoru.
-//
-// Princip: celý vault (vault.db + vault.salt + objects/) se zazipuje a zašifruje
-// AES-256-GCM klíčem odvozeným z master hesla a *sync-salt* (sdíleného mezi
-// zařízeními přes Supabase). Do Supabase Storage jde JEN ciphertext — server
-// nikdy nevidí hesla ani obsah. Zachovává zero-knowledge model i pro přílohy.
+// Cloud (Supabase) — hostovaný majitelem appky. Uživatelé se registrují/přihlašují
+// emailem+heslem; jejich trezor se synchronizuje end-to-end šifrovaný. Server vidí
+// jen ciphertext a odvozené `auth_password` (NE skutečné heslo ani šifrovací klíč).
 
+use crate::cloud_config as cfg;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use rand::RngCore;
@@ -13,39 +11,21 @@ use std::io::{Read, Write};
 use std::path::Path;
 use walkdir::WalkDir;
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct CloudConfig {
-    pub url: String,
-    pub anon_key: String,
-    pub email: String,
-    pub password: String,
-    pub bucket: String,
-}
-
+#[derive(Clone)]
 pub struct Session {
     pub access_token: String,
     pub user_id: String,
+    pub email: String,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SnapshotMeta {
-    pub sync_salt: String,   // hex, sdílený mezi zařízeními (není tajný)
     pub updated_at: String,
     pub device: String,
     pub size: u64,
 }
 
 // ----------------------------- Šifrování ---------------------------------
-
-/// Odvodí 32B klíč pro AES-GCM z hesla a sync-salt (Argon2id, viz crypto.rs).
-pub fn derive_sync_key(password: &str, salt_hex: &str) -> Result<[u8; 32], String> {
-    let salt = hex::decode(salt_hex).map_err(|e| format!("sync_salt: {e}"))?;
-    let hex_key = crate::crypto::derive_key_hex(password, &salt)?;
-    let bytes = hex::decode(hex_key).map_err(|e| e.to_string())?;
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&bytes);
-    Ok(key)
-}
 
 /// nonce(12) || ciphertext
 fn encrypt(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, String> {
@@ -75,28 +55,23 @@ fn decrypt(key: &[u8; 32], blob: &[u8]) -> Result<Vec<u8>, String> {
 
 // ----------------------------- ZIP trezoru -------------------------------
 
-/// Zazipuje vault do paměti: vault.db (z konzistentní kopie), vault.salt, objects/.
 pub fn zip_vault(vault_dir: &Path, db_snapshot: &Path) -> Result<Vec<u8>, String> {
     let mut cursor = std::io::Cursor::new(Vec::new());
     {
         let mut zip = zip::ZipWriter::new(&mut cursor);
         let opts = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
-
         let add = |zip: &mut zip::ZipWriter<_>, name: &str, path: &Path| -> Result<(), String> {
-            let mut f = std::fs::File::open(path).map_err(|e| format!("{name}: {e}"))?;
             let mut buf = Vec::new();
-            f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+            std::fs::File::open(path)
+                .map_err(|e| format!("{name}: {e}"))?
+                .read_to_end(&mut buf)
+                .map_err(|e| e.to_string())?;
             zip.start_file(name, opts).map_err(|e| e.to_string())?;
             zip.write_all(&buf).map_err(|e| e.to_string())?;
             Ok(())
         };
-
         add(&mut zip, "vault.db", db_snapshot)?;
-        let salt = vault_dir.join("vault.salt");
-        if salt.exists() {
-            add(&mut zip, "vault.salt", &salt)?;
-        }
         let objects = vault_dir.join("objects");
         if objects.is_dir() {
             for entry in WalkDir::new(&objects).into_iter().filter_map(|e| e.ok()) {
@@ -116,7 +91,6 @@ pub fn zip_vault(vault_dir: &Path, db_snapshot: &Path) -> Result<Vec<u8>, String
     Ok(cursor.into_inner())
 }
 
-/// Rozbalí snapshot do vault_dir (přepíše vault.db, vault.salt, objects/).
 pub fn unzip_vault(vault_dir: &Path, bytes: &[u8]) -> Result<(), String> {
     let cursor = std::io::Cursor::new(bytes);
     let mut zip = zip::ZipArchive::new(cursor).map_err(|e| format!("čtení ZIP: {e}"))?;
@@ -124,7 +98,6 @@ pub fn unzip_vault(vault_dir: &Path, bytes: &[u8]) -> Result<(), String> {
     for i in 0..zip.len() {
         let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
         let name = file.name().to_string();
-        // Ochrana proti path traversal.
         if name.contains("..") || name.starts_with('/') {
             continue;
         }
@@ -147,54 +120,79 @@ pub fn unzip_vault(vault_dir: &Path, bytes: &[u8]) -> Result<(), String> {
 
 // ----------------------------- Supabase ----------------------------------
 
-fn endpoint(cfg: &CloudConfig, path: &str) -> String {
-    format!("{}/{}", cfg.url.trim_end_matches('/'), path.trim_start_matches('/'))
+fn endpoint(path: &str) -> String {
+    format!("{}/{}", cfg::SUPABASE_URL.trim_end_matches('/'), path.trim_start_matches('/'))
 }
 
 fn ureq_err(prefix: &str, e: ureq::Error) -> String {
     match e {
         ureq::Error::Status(code, resp) => {
             let body = resp.into_string().unwrap_or_default();
-            format!("{prefix}: HTTP {code} {}", body.chars().take(200).collect::<String>())
+            let msg = serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| {
+                    v.get("error_description")
+                        .or_else(|| v.get("msg"))
+                        .or_else(|| v.get("message"))
+                        .and_then(|x| x.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_else(|| body.chars().take(160).collect());
+            format!("{prefix}: {msg} (HTTP {code})")
         }
-        ureq::Error::Transport(t) => format!("{prefix}: spojení {t}"),
+        ureq::Error::Transport(t) => format!("{prefix}: spojení selhalo ({t})"),
     }
 }
 
-/// Přihlášení k Supabase Auth (grant_type=password).
-pub fn auth(cfg: &CloudConfig) -> Result<Session, String> {
-    let url = endpoint(cfg, "auth/v1/token?grant_type=password");
-    let resp = ureq::post(&url)
-        .set("apikey", &cfg.anon_key)
-        .set("Content-Type", "application/json")
-        .send_json(json!({ "email": cfg.email, "password": cfg.password }))
-        .map_err(|e| ureq_err("přihlášení", e))?;
-    let body: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+fn session_from_json(body: &serde_json::Value, email: &str) -> Result<Session, String> {
     let access_token = body
         .get("access_token")
         .and_then(|v| v.as_str())
-        .ok_or("přihlášení: chybí access_token")?
+        .ok_or("odpověď bez access_token (je u účtu vyžadováno potvrzení e-mailu?)")?
         .to_string();
     let user_id = body
         .get("user")
         .and_then(|u| u.get("id"))
         .and_then(|v| v.as_str())
-        .ok_or("přihlášení: chybí user id")?
+        .ok_or("odpověď bez user id")?
         .to_string();
-    Ok(Session { access_token, user_id })
+    Ok(Session { access_token, user_id, email: email.to_string() })
 }
 
-fn storage_url(cfg: &CloudConfig, sess: &Session, name: &str) -> String {
-    endpoint(
-        cfg,
-        &format!("storage/v1/object/{}/{}/{}", cfg.bucket, sess.user_id, name),
-    )
+/// Registrace nového účtu. `auth_password` = odvozené heslo (ne skutečné).
+pub fn sign_up(email: &str, auth_password: &str) -> Result<Session, String> {
+    let resp = ureq::post(&endpoint("auth/v1/signup"))
+        .set("apikey", cfg::SUPABASE_ANON_KEY)
+        .set("Content-Type", "application/json")
+        .send_json(json!({ "email": email, "password": auth_password }))
+        .map_err(|e| ureq_err("registrace", e))?;
+    let body: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    session_from_json(&body, email)
 }
 
-pub fn upload(cfg: &CloudConfig, sess: &Session, name: &str, bytes: &[u8], content_type: &str) -> Result<(), String> {
-    let url = storage_url(cfg, sess, name);
-    ureq::post(&url)
-        .set("apikey", &cfg.anon_key)
+/// Přihlášení existujícího účtu.
+pub fn sign_in(email: &str, auth_password: &str) -> Result<Session, String> {
+    let resp = ureq::post(&endpoint("auth/v1/token?grant_type=password"))
+        .set("apikey", cfg::SUPABASE_ANON_KEY)
+        .set("Content-Type", "application/json")
+        .send_json(json!({ "email": email, "password": auth_password }))
+        .map_err(|e| ureq_err("přihlášení", e))?;
+    let body: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    session_from_json(&body, email)
+}
+
+fn storage_url(sess: &Session, name: &str) -> String {
+    endpoint(&format!(
+        "storage/v1/object/{}/{}/{}",
+        cfg::STORAGE_BUCKET,
+        sess.user_id,
+        name
+    ))
+}
+
+fn upload(sess: &Session, name: &str, bytes: &[u8], content_type: &str) -> Result<(), String> {
+    ureq::post(&storage_url(sess, name))
+        .set("apikey", cfg::SUPABASE_ANON_KEY)
         .set("Authorization", &format!("Bearer {}", sess.access_token))
         .set("Content-Type", content_type)
         .set("x-upsert", "true")
@@ -203,19 +201,15 @@ pub fn upload(cfg: &CloudConfig, sess: &Session, name: &str, bytes: &[u8], conte
     Ok(())
 }
 
-/// Stáhne objekt; vrací None při 404 (ještě neexistuje).
-pub fn download(cfg: &CloudConfig, sess: &Session, name: &str) -> Result<Option<Vec<u8>>, String> {
-    let url = storage_url(cfg, sess, name);
-    match ureq::get(&url)
-        .set("apikey", &cfg.anon_key)
+fn download(sess: &Session, name: &str) -> Result<Option<Vec<u8>>, String> {
+    match ureq::get(&storage_url(sess, name))
+        .set("apikey", cfg::SUPABASE_ANON_KEY)
         .set("Authorization", &format!("Bearer {}", sess.access_token))
         .call()
     {
         Ok(resp) => {
             let mut buf = Vec::new();
-            resp.into_reader()
-                .read_to_end(&mut buf)
-                .map_err(|e| e.to_string())?;
+            resp.into_reader().read_to_end(&mut buf).map_err(|e| e.to_string())?;
             Ok(Some(buf))
         }
         Err(ureq::Error::Status(400 | 404, _)) => Ok(None),
@@ -230,59 +224,43 @@ pub struct PushResult {
     pub updated_at: String,
 }
 
-/// Zašifruje a nahraje snapshot. `password` = master heslo (k odvození sync klíče).
-#[allow(clippy::too_many_arguments)]
+/// Zašifruje a nahraje snapshot trezoru.
 pub fn push(
-    cfg: &CloudConfig,
+    sess: &Session,
+    enc_key: &[u8; 32],
     vault_dir: &Path,
     db_snapshot: &Path,
-    password: &str,
-    sync_salt_hex: &str,
     device: &str,
     now: &str,
 ) -> Result<PushResult, String> {
-    let sess = auth(cfg)?;
     let plain = zip_vault(vault_dir, db_snapshot)?;
-    let key = derive_sync_key(password, sync_salt_hex)?;
-    let cipher = encrypt(&key, &plain)?;
+    let cipher = encrypt(enc_key, &plain)?;
     let size = cipher.len() as u64;
-    upload(cfg, &sess, "snapshot.enc", &cipher, "application/octet-stream")?;
-    let meta = SnapshotMeta {
-        sync_salt: sync_salt_hex.to_string(),
-        updated_at: now.to_string(),
-        device: device.to_string(),
-        size,
-    };
-    let meta_json = serde_json::to_vec(&meta).map_err(|e| e.to_string())?;
-    upload(cfg, &sess, "snapshot.meta.json", &meta_json, "application/json")?;
+    upload(sess, "snapshot.enc", &cipher, "application/octet-stream")?;
+    let meta = SnapshotMeta { updated_at: now.to_string(), device: device.to_string(), size };
+    upload(
+        sess,
+        "snapshot.meta.json",
+        &serde_json::to_vec(&meta).map_err(|e| e.to_string())?,
+        "application/json",
+    )?;
     Ok(PushResult { size, updated_at: now.to_string() })
 }
 
-/// Stáhne metadata snapshotu (None pokud v cloudu zatím nic není).
-pub fn fetch_meta(cfg: &CloudConfig) -> Result<Option<SnapshotMeta>, String> {
-    let sess = auth(cfg)?;
-    match download(cfg, &sess, "snapshot.meta.json")? {
-        Some(bytes) => {
-            let meta: SnapshotMeta = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-            Ok(Some(meta))
-        }
+pub fn fetch_meta(sess: &Session) -> Result<Option<SnapshotMeta>, String> {
+    match download(sess, "snapshot.meta.json")? {
+        Some(b) => Ok(Some(serde_json::from_slice(&b).map_err(|e| e.to_string())?)),
         None => Ok(None),
     }
 }
 
-/// Stáhne a dešifruje snapshot a rozbalí ho do vault_dir. Vrací false pokud
-/// v cloudu nic není. `password` = master heslo.
-pub fn pull(cfg: &CloudConfig, vault_dir: &Path, password: &str) -> Result<bool, String> {
-    let sess = auth(cfg)?;
-    let meta_bytes = match download(cfg, &sess, "snapshot.meta.json")? {
+/// Stáhne a dešifruje snapshot do vault_dir. Vrací false, pokud v cloudu nic není.
+pub fn pull(sess: &Session, enc_key: &[u8; 32], vault_dir: &Path) -> Result<bool, String> {
+    let cipher = match download(sess, "snapshot.enc")? {
         Some(b) => b,
         None => return Ok(false),
     };
-    let meta: SnapshotMeta = serde_json::from_slice(&meta_bytes).map_err(|e| e.to_string())?;
-    let cipher = download(cfg, &sess, "snapshot.enc")?
-        .ok_or("v cloudu chybí snapshot.enc")?;
-    let key = derive_sync_key(password, &meta.sync_salt)?;
-    let plain = decrypt(&key, &cipher)?;
+    let plain = decrypt(enc_key, &cipher)?;
     unzip_vault(vault_dir, &plain)?;
     Ok(true)
 }

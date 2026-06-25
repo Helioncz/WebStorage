@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, Row } from "../lib/api";
 import { useStore } from "../store/useStore";
@@ -55,6 +55,9 @@ export default function NewProjectModal() {
   const [isPrivate, setIsPrivate] = useState(true);
   const [apps, setApps] = useState<{ name: string; path: string }[]>([]);
   const [openApp, setOpenApp] = useState("");
+  const templateStageRef = useRef<HTMLDivElement | null>(null);
+  const all: Row[] = [BLANK, ...templates];
+  const selectedIndex = Math.max(0, all.findIndex((t) => t.key === tplKey || t.rel === tplKey));
 
   useEffect(() => {
     if (!newProjectOpen) return;
@@ -70,6 +73,14 @@ export default function NewProjectModal() {
     });
   }, [newProjectOpen, newProjectTemplate]);
 
+  useEffect(() => {
+    if (!newProjectOpen || !templateStageRef.current) return;
+    templateStageRef.current.scrollTo({
+      left: Math.max(0, selectedIndex * 200 - 16),
+      behavior: "smooth",
+    });
+  }, [newProjectOpen, selectedIndex]);
+
   const chooseApp = async (val: string) => {
     if (val === "__pick__") {
       const picked = await open({ directory: true, multiple: false, defaultPath: "/Applications" });
@@ -82,7 +93,6 @@ export default function NewProjectModal() {
 
   if (!newProjectOpen) return null;
 
-  const all: Row[] = [BLANK, ...templates];
   const selected = all.find((t) => t.key === tplKey || t.rel === tplKey);
   const slug = toSlug(name);
 
@@ -152,7 +162,6 @@ export default function NewProjectModal() {
     if (!t || t.key === "blank") return "Základní soubory: index.html, style.css, script.js, README.md, assets/";
     return "hotová grafika · kód webu";
   };
-  const selectedIndex = Math.max(0, all.findIndex((t) => t.key === tplKey || t.rel === tplKey));
   const prevTemplate = () => {
     const next = all[(selectedIndex - 1 + all.length) % all.length];
     setTplKey(next.key || next.rel);
@@ -184,7 +193,7 @@ export default function NewProjectModal() {
         <label>Šablona webu</label>
         <div className="template-picker">
           <button className="template-arrow" type="button" onClick={prevTemplate} title="Předchozí šablona">‹</button>
-          <div className="template-stage">
+          <div className="template-stage" ref={templateStageRef}>
             <div className="template-ribbon">
               {all.map((t) => {
                 const active = t.key === tplKey || t.rel === tplKey;

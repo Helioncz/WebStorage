@@ -29,6 +29,10 @@ export const api = {
   updateProject: (id: string, fields: Record<string, any>) =>
     invoke<void>("update_project", { id, fields }),
   deleteProject: (id: string) => invoke<void>("delete_project", { id }),
+  restoreProject: (id: string) => invoke<void>("restore_project", { id }),
+  purgeProject: (id: string) => invoke<void>("purge_project", { id }),
+  projectForSite: (rel: string) => invoke<string | null>("project_for_site", { rel }),
+  siteForProject: (id: string) => invoke<string | null>("site_for_project", { id }),
   touchOpened: (id: string) => invoke<void>("touch_opened", { id }),
 
   // Poznamky
@@ -82,18 +86,9 @@ export const api = {
     invoke<string>("import_file", { projectId, srcPath }),
   openFile: (id: string) => invoke<void>("open_file", { id }),
   deleteFile: (id: string) => invoke<void>("delete_file", { id }),
-  openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
   listFileVersions: (fileId: string) => invoke<Row[]>("list_file_versions", { fileId }),
   restoreFileVersion: (versionId: string) =>
     invoke<void>("restore_file_version", { versionId }),
-
-  // Sablony
-  listTemplates: () => invoke<Row[]>("list_templates"),
-  saveTemplate: (name: string, description: string, payloadJson: string) =>
-    invoke<string>("save_template", { name, description, payloadJson }),
-  deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),
-  createProjectFromTemplate: (templateId: string, name: string, client?: string) =>
-    invoke<string>("create_project_from_template", { templateId, name, client }),
 
   // Monitoring
   listMonitors: (projectId: string) => invoke<Row[]>("list_monitors", { projectId }),
@@ -112,29 +107,40 @@ export const api = {
     projectId?: string;
   }) => invoke<{ files: number; bytes: number; zipPath: string }>("export_site", a),
 
-  // Cloud sync (Supabase, E2E šifrované)
+  // Cloud účet (Supabase, E2E šifrované) — hostováno majitelem appky
   cloudStatus: () =>
     invoke<{
       configured: boolean;
-      url?: string;
+      signed_in: boolean;
       email?: string;
-      bucket: string;
       last_synced?: string;
     }>("cloud_status"),
-  cloudSetConfig: (c: {
-    url: string;
-    anonKey: string;
-    email: string;
-    password: string;
-    bucket?: string;
-  }) => invoke<void>("cloud_set_config", c),
-  cloudTest: () => invoke<string>("cloud_test"),
+  cloudRegister: (email: string, password: string) =>
+    invoke<void>("cloud_register", { email, password }),
+  cloudLogin: (email: string, password: string) =>
+    invoke<void>("cloud_login", { email, password }),
+  cloudLogout: () => invoke<void>("cloud_logout"),
   cloudPush: () => invoke<{ size: number; updated_at: string }>("cloud_push"),
   cloudRemoteInfo: () =>
     invoke<{ exists: boolean; updated_at?: string; device?: string; size?: number }>(
       "cloud_remote_info"
     ),
   cloudPull: () => invoke<void>("cloud_pull"),
+
+  // Website Import & Redesign
+  redesignAnalyze: (source: string, sourceType: "url" | "folder") =>
+    invoke<Row>("redesign_analyze", { source, sourceType }),
+  redesignCreate: (analysis: Row, opts: Row, targetDir?: string) =>
+    invoke<{ project_dir: string; files: string[]; log: string[]; site_rel?: string }>(
+      "redesign_create",
+      { analysis, opts, targetDir }
+    ),
+  redesignOpen: (projectDir: string, app?: string) =>
+    invoke<void>("redesign_open", { projectDir, app }),
+  redesignOpenClaude: (projectDir: string) =>
+    invoke<void>("redesign_open_claude", { projectDir }),
+  redesignGithub: (projectDir: string, name: string) =>
+    invoke<string>("redesign_github", { projectDir, name }),
 
   // Weby (slozky na disku, mimo trezor). `rel` = "sites/foo" nebo "site-templates/bar".
   getSitesRoot: () => invoke<{ root: string; preview_port: number }>("get_sites_root"),
@@ -157,6 +163,9 @@ export const api = {
   importAsset: (rel: string, srcPath: string, subdir?: string) =>
     invoke<string>("import_asset", { rel, srcPath, subdir }),
   deleteSite: (rel: string) => invoke<void>("delete_site", { rel }),
+  siteTrash: (rel: string) => invoke<string>("site_trash", { rel }),
+  siteRestore: (token: string) => invoke<void>("site_restore", { token }),
+  sitePurge: (token: string) => invoke<void>("site_purge", { token }),
   sitePreviewUrl: (rel: string) => invoke<string>("site_preview_url", { rel }),
   openSiteFolder: (rel: string) => invoke<void>("open_site_folder", { rel }),
   exportSiteZip: (rel: string, dest: string) =>

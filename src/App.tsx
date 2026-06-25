@@ -7,8 +7,10 @@ import ProjectDetail from "./components/ProjectDetail";
 import Sites from "./components/Sites";
 import Settings from "./components/Settings";
 import Help from "./components/Help";
+import Redesign from "./components/Redesign";
 import StatusBar from "./components/StatusBar";
 import NewProjectModal from "./components/NewProjectModal";
+import UndoToast from "./components/UndoToast";
 import { ConfirmHost } from "./components/Modal";
 
 export default function App() {
@@ -32,12 +34,15 @@ export default function App() {
           <Settings />
         ) : view === "help" ? (
           <Help />
+        ) : view === "redesign" ? (
+          <Redesign />
         ) : (
           <Dashboard />
         )}
       </main>
       <NewProjectModal />
       <ConfirmHost />
+      <UndoToast />
       <StatusBar />
     </div>
   );

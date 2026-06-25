@@ -27,25 +27,21 @@ hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock"] }
 thiserror = "1"
-<<<<<<< Updated upstream
-# Lokalni HTTP server pro live preview webu + ZIP export slozky
+# Lokalni HTTP server pro live preview webu + ZIP export slozky (web builder)
 tiny_http = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 walkdir = "2"
-# HTTP klient pro proxy na AI API (obchazi CORS webview, klic zustava v backendu)
+# HTTP klient: AI proxy (web builder) + Supabase cloud sync
 ureq = { version = "2", features = ["json"] }
-=======
-# Export webu pro zakaznika: ZIP balicek + rekurzivni prochazeni slozky
-zip = { version = "2", default-features = false, features = ["deflate"] }
-walkdir = "2"
 # Monitoring webu: HTTPS dostupnost + cteni expirace SSL certifikatu (cisty Rust)
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"
 x509-parser = "0.16"
-# Cloud sync (Supabase): HTTP klient + E2E sifrovani snapshotu trezoru
-ureq = { version = "2", features = ["json"] }
+# Cloud sync (Supabase): E2E sifrovani snapshotu trezoru
 aes-gcm = "0.10"
->>>>>>> Stashed changes
+# Website Import & Redesign: parsovani HTML + skladani URL assetu
+scraper = "0.20"
+url = "2"
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

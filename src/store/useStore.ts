@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type View = "dashboard" | "project" | "sites" | "settings" | "help";
+type View = "dashboard" | "project" | "sites" | "settings" | "help" | "redesign";
 
 interface AppStore {
   unlocked: boolean;
@@ -15,6 +15,7 @@ interface AppStore {
   openSites: () => void;
   gotoSettings: () => void;
   openHelp: () => void;
+  openRedesign: () => void;
   refreshKey: number;
   refresh: () => void;
   // Stavová lišta — krátká zpráva o probíhající akci
@@ -29,6 +30,10 @@ interface AppStore {
   pendingSiteRel: string | null;
   openSiteInWorkspace: (rel: string) => void;
   consumePendingSite: () => void;
+  // Vrátit (undo) — 10s okno po smazání
+  undo: { message: string; restore: () => Promise<void> | void; commit: () => Promise<void> | void } | null;
+  setUndo: (u: AppStore["undo"]) => void;
+  clearUndo: () => void;
 }
 
 export const THEMES = ["dark", "light", "ocean", "rose"];
@@ -57,6 +62,7 @@ export const useStore = create<AppStore>((set) => ({
   openSites: () => set({ view: "sites", selectedProjectId: null }),
   gotoSettings: () => set({ view: "settings", selectedProjectId: null }),
   openHelp: () => set({ view: "help", selectedProjectId: null }),
+  openRedesign: () => set({ view: "redesign", selectedProjectId: null }),
   refreshKey: 0,
   refresh: () => set((s) => ({ refreshKey: s.refreshKey + 1 })),
   statusMsg: "",
@@ -67,5 +73,8 @@ export const useStore = create<AppStore>((set) => ({
   closeNewProject: () => set({ newProjectOpen: false, newProjectTemplate: null }),
   pendingSiteRel: null,
   openSiteInWorkspace: (rel) => set({ view: "sites", selectedProjectId: null, pendingSiteRel: rel }),
+  undo: null,
+  setUndo: (u) => set({ undo: u }),
+  clearUndo: () => set({ undo: null }),
   consumePendingSite: () => set({ pendingSiteRel: null }),
 }));

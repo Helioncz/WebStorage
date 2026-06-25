@@ -94,10 +94,32 @@ export default function Sites() {
 
       <div className="section-title">Moje weby</div>
       {sites.length === 0 ? (
-        <div className="card empty">
-          <div>Zatím žádný web.</div>
-          <div className="muted" style={{ marginTop: 8, fontSize: 13 }}>
-            Klikni <strong>+ Nový projekt</strong> (vlevo dole) — vyber šablonu nebo prázdný web. Vznikne tu pracovní web.
+        <div className="card empty-state">
+          <strong>Zatím tu není žádný pracovní web.</strong>
+          <span>
+            Nejrychlejší cesta je založit nový projekt, vybrat šablonu a nechat aplikaci připravit soubory, checklist i GitHub repozitář.
+          </span>
+          <div className="row">
+            <button className="ghost" onClick={addTemplate}>Přidat vlastní šablonu</button>
+          </div>
+          <div className="muted" style={{ fontSize: 13 }}>Nový projekt založíš tlačítkem <strong>+ Nový projekt</strong> vlevo dole.</div>
+          <div className="setup-list" style={{ marginTop: 10 }}>
+            <div className="setup-item ok">
+              <span className="setup-dot">1</span>
+              <div><strong>Vyber šablonu</strong><small>Startuješ z hotového vzhledu nebo čistého HTML/CSS/JS.</small></div>
+            </div>
+            <div className="setup-item ok">
+              <span className="setup-dot">2</span>
+              <div><strong>Uprav a zkontroluj</strong><small>Live preview, editor souborů, ZIP export a složka pro Claude Code.</small></div>
+            </div>
+            <div className="setup-item ok">
+              <span className="setup-dot">3</span>
+              <div><strong>Nahraj na GitHub</strong><small>Repozitář se může založit rovnou při vytvoření projektu.</small></div>
+            </div>
+            <div className="setup-item ok">
+              <span className="setup-dot">4</span>
+              <div><strong>Nasaď klientovi</strong><small>Ulož živou URL, otestuj formuláře, HTTPS, SEO a responzivitu.</small></div>
+            </div>
           </div>
         </div>
       ) : (

@@ -1,0 +1,324 @@
+UNIVERZÁLNÍ PROMPT PRO REDESIGN WEBU ZE ZADANÉ URL
+=======================================================
+
+Zdrojový web:
+{{SOURCE_URL}}
+
+Cílová složka projektu:
+{{TARGET_DIRECTORY}}
+
+Preferovaná technologie:
+{{TECHNOLOGY_OR_AUTO}}
+
+Jazyk webu:
+{{LANGUAGE_OR_AUTO}}
+
+HLAVNÍ ÚKOL
+-----------
+
+Proveď kompletní analýzu zadaného webu a vytvoř jeho novou, výrazně modernější, profesionální a plně funkční verzi.
+
+Neprováděj pouze kosmetickou úpravu původního HTML. Navrhni web znovu podle jeho skutečného účelu, cílové skupiny a současných trendů daného oboru.
+
+Web smí být zpracován pouze tehdy, pokud jej uživatel vlastní, spravuje nebo má souhlas k jeho redesignu.
+
+1. ANALÝZA PŮVODNÍHO WEBU
+-------------------------
+
+Nejprve projdi všechny veřejně dostupné stránky v rámci stejné domény.
+
+Zjisti a zaznamenej:
+
+- účel webu;
+- obor podnikání nebo zaměření organizace;
+- cílovou skupinu;
+- hlavní služby, produkty nebo obsah;
+- kompletní navigaci a strukturu stránek;
+- nadpisy, texty, kontaktní údaje a výzvy k akci;
+- formuláře a jejich pole;
+- obrázky, videa, dokumenty a další soubory;
+- firemní barvy, logo a vizuální identitu;
+- používané fonty;
+- metadata, titulky a popisy stránek;
+- interní a externí odkazy;
+- důležité funkce webu;
+- analytické, mapové, chatovací nebo jiné integrace;
+- právní stránky, cookies a zásady ochrany osobních údajů.
+
+Podporuj také weby vykreslované pomocí JavaScriptu.
+
+Neobcházej:
+
+- přihlášení;
+- CAPTCHA;
+- paywall;
+- zákaz přístupu;
+- bezpečnostní ochrany;
+- části zakázané pravidly robots.txt.
+
+Používej rozumné prodlevy a nezatěžuj server nadměrným počtem požadavků.
+
+2. INVENTURA OBSAHU
+-------------------
+
+Vytvoř soubor `website-analysis.md`, který bude obsahovat:
+
+- stručné shrnutí webu;
+- rozpoznaný obor;
+- cílovou skupinu;
+- seznam nalezených stránek;
+- seznam důležitých funkcí;
+- seznam zachovaných textů;
+- seznam obrázků a dokumentů;
+- nedostatky původního webu;
+- doporučení pro nový web;
+- obsah vyžadující ruční kontrolu.
+
+Nevymýšlej nové reference, certifikace, zkušenosti, ceny, kontakty ani jiné faktické údaje.
+
+Pokud nějaký údaj chybí, použij jasně označený placeholder.
+
+3. AKTUÁLNÍ PRŮZKUM DESIGNU
+---------------------------
+
+Před vytvořením návrhu proveď aktuální internetový průzkum.
+
+Vyhledej:
+
+- nejmodernější weby v rozpoznaném oboru;
+- aktuální designové trendy používané v tomto oboru;
+- vhodné rozložení titulní stránky;
+- obvyklé rozhodovací potřeby zákazníků;
+- vhodné prvky důvěryhodnosti;
+- moderní způsob prezentace služeb nebo produktů;
+- současné UX a konverzní postupy.
+
+Analyzuj minimálně 5 kvalitních aktuálních webů stejného nebo podobného zaměření.
+
+Inspiruj se jejich principy, nikoliv jejich konkrétním obsahem nebo grafikou. Nekopíruj cizí design 1:1.
+
+Aktuálnost průzkumu ověř podle data publikace nebo poslední aktualizace zdroje.
+
+4. AUTOMATICKÝ VÝBĚR STYLU
+--------------------------
+
+Podle oboru automaticky zvol vhodný designový směr.
+
+Příklady:
+
+- technická firma: precizní, důvěryhodný a výkonný vzhled;
+- stavební firma: výrazné realizace, reference a pevná typografie;
+- energetika: moderní technický vzhled, data a důraz na úspory;
+- právní služby: konzervativní, prémiový a důvěryhodný styl;
+- zdravotnictví: klidný, přístupný a srozumitelný design;
+- restaurace: emotivní fotografie a jednoduché rezervace;
+- divadlo nebo kultura: vizuálně odvážný a redakčně snadno spravovatelný web;
+- kreativní studio: originální typografie a kontrolované animace;
+- e-shop: produktově orientované rozhraní a rychlá cesta k nákupu;
+- lokální služby: kontakty, dostupnost, mapa, reference a rychlá poptávka.
+
+Nepoužívej automaticky neonové gradienty, glassmorphism, obří zaoblení nebo animace jen proto, že vypadají moderně. Každý prvek musí odpovídat oboru a pomáhat návštěvníkovi.
+
+5. DESIGNOVÝ NÁVRH
+------------------
+
+Vytvoř `design-brief.md` obsahující:
+
+- zvolený vizuální směr;
+- důvod jeho výběru;
+- barevnou paletu;
+- typografii;
+- rozvržení stránek;
+- styl fotografií;
+- návrh navigace;
+- komponenty webu;
+- způsob použití animací;
+- návrh mobilní verze;
+- hlavní CTA;
+- pravidla konzistentního designu.
+
+Použij moderní prvky pouze tam, kde dávají smysl:
+
+- výrazná a čitelná typografie;
+- asymetrické, ale přehledné rozložení;
+- bento grid;
+- jemné mikrointerakce;
+- sticky navigace;
+- dynamické sekce;
+- kvalitní práce s fotografiemi;
+- promyšlený whitespace;
+- variabilní fonty;
+- decentní animace při scrollování;
+- světlý nebo tmavý režim, pokud odpovídá značce;
+- obsahově řízený design.
+
+6. VYTVOŘENÍ NOVÉHO WEBU
+------------------------
+
+Postav kompletní funkční web, nikoliv pouze obrázek nebo maketu.
+
+Pokud nebyla zadána technologie:
+
+1. Pro jednoduchý prezentační web preferuj Astro nebo čisté HTML/CSS/JavaScript.
+2. Pro interaktivní web použij React s Vite.
+3. Nepřidávej velký framework, pokud není skutečně potřeba.
+4. Pokud cílová složka již obsahuje projekt, zachovej jeho technologii, pokud tomu nebrání vážný technický problém.
+
+Požadavky:
+
+- responzivní zobrazení;
+- funkční navigace;
+- mobilní menu;
+- funkční formuláře;
+- všechny důležité původní stránky;
+- opakovaně použitelné komponenty;
+- čistá struktura projektu;
+- designové proměnné;
+- optimalizované obrázky;
+- lazy loading;
+- responzivní obrázky;
+- správné stavy hover, focus a active;
+- srozumitelné chybové stavy formulářů;
+- žádný Lorem Ipsum ve finálním výsledku.
+
+7. ZACHOVÁNÍ OBSAHU A FUNKCÍ
+----------------------------
+
+Zachovej všechny důležité informace a funkce původního webu.
+
+Text můžeš:
+
+- jazykově opravit;
+- zkrátit;
+- lépe strukturovat;
+- zpřehlednit;
+- upravit pro lepší konverze.
+
+Nesmíš měnit jeho faktický význam.
+
+Stažené soubory ukládej lokálně do vhodných složek. Zachovej původní názvy a zdroj každého převzatého souboru v `content-sources.json`.
+
+Pokud není jisté oprávnění k použití obrázku, označ jej k ruční kontrole.
+
+8. SEO
+------
+
+Pro každou stránku připrav:
+
+- jedinečný `<title>`;
+- meta description;
+- správnou strukturu H1-H3;
+- canonical URL;
+- Open Graph metadata;
+- smysluplné URL;
+- alt texty obrázků;
+- sitemap.xml;
+- robots.txt;
+- strukturovaná data Schema.org, pokud jsou vhodná;
+- správné interní prolinkování.
+
+Nevytvářej spamové texty ani uměle nepřeháněj počet klíčových slov.
+
+9. PŘÍSTUPNOST
+--------------
+
+Cílem je WCAG 2.2 úroveň AA.
+
+Zajisti:
+
+- správné sémantické HTML;
+- dostatečný kontrast;
+- ovládání klávesnicí;
+- viditelný focus;
+- popisky formulářů;
+- smysluplné alt texty;
+- správnou hierarchii nadpisů;
+- dostatečně velké ovládací prvky;
+- podporu `prefers-reduced-motion`;
+- animace neblokující ovládání;
+- ARIA pouze tam, kde nestačí nativní HTML.
+
+10. VÝKON
+---------
+
+Optimalizuj web pro Core Web Vitals.
+
+Cíle:
+
+- LCP pod 2,5 sekundy;
+- INP pod 200 ms;
+- CLS pod 0,1;
+- Lighthouse Performance alespoň 90;
+- Accessibility alespoň 95;
+- SEO alespoň 95;
+- Best Practices alespoň 90.
+
+Minimalizuj JavaScript, velikost obrázků, blokující fonty a zbytečné knihovny.
+
+11. KONTROLA FUNKČNOSTI
+-----------------------
+
+Po dokončení:
+
+- spusť projekt;
+- proveď produkční build;
+- oprav všechny chyby;
+- zkontroluj interní odkazy;
+- otestuj formuláře;
+- zkontroluj konzoli prohlížeče;
+- otestuj mobilní, tabletové a desktopové rozlišení;
+- zkontroluj přetečení obsahu;
+- ověř klávesnicové ovládání;
+- spusť Lighthouse nebo odpovídající kontrolu;
+- oprav závažné problémy.
+
+Vytvoř screenshoty hlavních stránek v mobilní i desktopové verzi.
+
+12. SOUBORY PROJEKTU
+--------------------
+
+Projekt musí obsahovat:
+
+- `README.md`;
+- `website-analysis.md`;
+- `design-brief.md`;
+- `content-sources.json`;
+- `redesign-report.md`;
+- `.gitignore`;
+- zdrojové soubory webu;
+- lokální assets;
+- návod ke spuštění a nasazení.
+
+Soubor `redesign-report.md` musí shrnout:
+
+- co bylo zachováno;
+- co bylo přepracováno;
+- jaký styl byl vybrán;
+- jaké trendy byly použity;
+- které funkce byly vytvořeny;
+- co vyžaduje ruční kontrolu;
+- výsledky testování.
+
+13. PRACOVNÍ POSTUP
+-------------------
+
+Pracuj samostatně v tomto pořadí:
+
+1. Zkontroluj vstupy a projekt.
+2. Proveď crawling webu.
+3. Vytvoř inventuru obsahu.
+4. Rozpoznej obor a cílovou skupinu.
+5. Proveď aktuální průzkum konkurence a trendů.
+6. Připrav informační architekturu.
+7. Navrhni designový systém.
+8. Implementuj web.
+9. Přenes a uprav obsah.
+10. Proveď testování.
+11. Oprav nalezené chyby.
+12. Připrav závěrečný report.
+
+Nezastavuj se po vytvoření návrhu nebo plánu. Pokračuj až k funkčnímu a otestovanému webu.
+
+Ptej se pouze tehdy, pokud chybí zásadní údaj, bez kterého nelze bezpečně pokračovat. V ostatních případech udělej rozumné rozhodnutí, zaznamenej jej a pokračuj.
+
+Výsledkem musí být nový, originální a profesionální web odpovídající danému oboru – ne pouze původní stránka převlečená do jiných barev.

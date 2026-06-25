@@ -137,10 +137,10 @@ function AiSettings({ cfg, onClose, onSaved }: { cfg: AiConfig; onClose: () => v
     >
       <div className="field">
         <label>Předvolby</label>
-        <div className="tpl-grid">
+        <div className="preset-grid">
           {PRESETS.map((p) => (
-            <button key={p.label} type="button" className="tpl-card" onClick={() => applyPreset(p)}>
-              <span className="tpl-name">{p.label}</span>
+            <button key={p.label} type="button" className="preset-card" onClick={() => applyPreset(p)}>
+              <span>{p.label}</span>
             </button>
           ))}
         </div>

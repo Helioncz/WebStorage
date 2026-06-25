@@ -2,42 +2,71 @@
 (function () {
   'use strict';
 
-  /* ---- Boot intro (jen při načtení z vrchu stránky) ---- */
-  (function boot() {
-    var el = document.getElementById('boot');
-    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    // hraje jen když jsme úplně nahoře a uživatel respektuje pohyb
-    if (!el || reduce || window.scrollY > 4) { if (el) el.remove(); return; }
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    el.classList.add('run');
-    document.body.style.overflow = 'hidden';
-    var log = document.getElementById('bootLog');
-    var bar = document.getElementById('bootBar');
-    var lines = [
-      { t: '> project-hangar --launch', d: 0 },
-      { t: '<span class="ok">✓</span> trezor odemčen', d: 30 },
-      { t: '<span class="ok">✓</span> workspace načten · 3 projekty', d: 58 },
-      { t: '<span class="ok">✓</span> live preview server na :5173', d: 80 },
-      { t: '<span class="ok">✓</span> AI agent připojen', d: 100 },
-      { t: 'ready <span class="cur">▋</span>', d: 100 }
-    ];
-    var html = '', i = 0;
-    function step() {
-      if (i >= lines.length) {
-        setTimeout(function () {
-          el.classList.add('done');
-          document.body.style.overflow = '';
-          setTimeout(function () { el.remove(); }, 700);
-        }, 480);
-        return;
+  /* ---- Intro splash: parallax + skrytí nav ---- */
+  (function intro() {
+    var inner = document.getElementById('introInner');
+    var introEl = document.getElementById('intro');
+    if (!introEl) return;
+    document.body.classList.add('pre-scroll');
+
+    function onScroll() {
+      var y = window.scrollY;
+      var vh = window.innerHeight;
+      // nav se objeví po 55 % výšky intro
+      document.body.classList.toggle('pre-scroll', y < vh * 0.55);
+      if (inner && !reduceMotion) {
+        var p = Math.min(y / vh, 1);            // 0 → 1 napříč první obrazovkou
+        inner.style.transform = 'translateY(' + (p * -60) + 'px) scale(' + (1 - p * 0.12) + ')';
+        inner.style.opacity = String(Math.max(1 - p * 1.35, 0));
       }
-      html += (i ? '\n' : '') + lines[i].t;
-      log.innerHTML = html;
-      bar.style.width = lines[i].d + '%';
-      i++;
-      setTimeout(step, i === 1 ? 360 : 300);
     }
-    setTimeout(step, 260);
+    window.addEventListener('scroll', function () {
+      window.requestAnimationFrame(onScroll);
+    }, { passive: true });
+    onScroll();
+
+    // klik na „scroll" plynule sjede na obsah
+    var sc = document.getElementById('introScroll');
+    if (sc) sc.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.scrollTo({ top: window.innerHeight, behavior: 'smooth' });
+    });
+  })();
+
+  /* ---- Vlastní kurzor ---- */
+  (function cursor() {
+    var fine = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
+    if (!fine || reduceMotion) return;
+    var dot = document.getElementById('curDot');
+    var ring = document.getElementById('curRing');
+    if (!dot || !ring) return;
+    document.body.classList.add('has-cursor');
+
+    var mx = window.innerWidth / 2, my = window.innerHeight / 2;
+    var rx = mx, ry = my;
+    document.addEventListener('mousemove', function (e) {
+      mx = e.clientX; my = e.clientY;
+      dot.style.transform = 'translate(' + mx + 'px,' + my + 'px) translate(-50%,-50%)';
+    });
+    (function loop() {
+      rx += (mx - rx) * 0.18; ry += (my - ry) * 0.18;
+      ring.style.transform = 'translate(' + rx + 'px,' + ry + 'px) translate(-50%,-50%)';
+      window.requestAnimationFrame(loop);
+    })();
+
+    var hot = 'a, button, summary, .seg-btn, input, [role="group"] button';
+    document.addEventListener('mouseover', function (e) {
+      if (e.target.closest(hot)) ring.classList.add('hot');
+    });
+    document.addEventListener('mouseout', function (e) {
+      if (e.target.closest(hot)) ring.classList.remove('hot');
+    });
+    document.addEventListener('mousedown', function () { ring.classList.add('down'); });
+    document.addEventListener('mouseup', function () { ring.classList.remove('down'); });
+    document.addEventListener('mouseleave', function () { dot.style.opacity = ring.style.opacity = '0'; });
+    document.addEventListener('mouseenter', function () { dot.style.opacity = '1'; ring.style.opacity = ''; });
   })();
 
   /* ---- Mobilní menu ---- */
@@ -152,57 +181,65 @@
     runHero();
   }
 
-  /* ---- Mini demo generátor (reálné šablony aplikace) ---- */
+  /* ---- Mini demo generátor (reálné šablony webů z aplikace) ---- */
   var TEMPLATES = {
-    web: {
-      label: 'Webová prezentace',
-      extra: ['kontakt.html', 'assets/'],
-      note: '## Web na klíč\n\nPostup: podklady → design →\nrealizace → nasazení → předání.',
-      site: 'web'
+    nocturn: {
+      label: 'NOCTÜRN — Creative Studio', tld: '.studio',
+      extra: ['assets/'],
+      note: '## NOCTÜRN — Creative Studio\n\nTmavá báze + acid lime, bento grid,\nkinetic typografie, custom kurzor.',
+      site: 'nocturn'
     },
-    eshop: {
-      label: 'E-shop',
-      extra: ['kosik.html', 'produkty/', 'assets/'],
-      note: '## E-shop\n\nNezapomenout: platby, doprava,\nGDPR, obchodní podmínky.',
-      site: 'eshop'
+    flux: {
+      label: 'FLUX// — Digital Product Studio', tld: '.dev',
+      extra: ['assets/'],
+      note: '## FLUX// — Digital Product Studio\n\nBrutalismus: black/white, neon,\nraw borders, ticker, monospace.',
+      site: 'flux'
     },
-    servis: {
-      label: 'Servisní zakázka',
-      extra: ['zaloha/', 'CHANGELOG.md'],
-      note: '## Servisní zakázka\n\nPřed zásahem vždy záloha!',
-      site: 'servis'
+    lumen: {
+      label: 'LUMEN — Editorial Studio', tld: '.com',
+      extra: ['assets/'],
+      note: '## LUMEN — Editorial Studio\n\nEditorial / luxury: světlá, serif\ndisplay, whitespace, terracotta akcent.',
+      site: 'lumen'
+    },
+    prisma: {
+      label: 'Prisma — SaaS', tld: '.app',
+      extra: ['assets/'],
+      note: '## Prisma — SaaS landing\n\nGradient mesh + glassmorphism,\nbento sekce, ceník.',
+      site: 'prisma'
     }
   };
 
-  // živé náhledy webu (skutečně vykreslené, světlý web jako reálný výstup)
+  // živé náhledy webu ve skutečném stylu každé šablony
   function siteHtml(kind, name) {
     var title = name.replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
-    if (kind === 'eshop') {
-      return '<div class="s s-eshop">' +
-        '<div class="s-nav"><b>' + escapeHtml(title) + '</b><span>Produkty · Košík 🛒</span></div>' +
-        '<div class="s-grid">' +
-          '<div class="s-card"><div class="s-img"></div><span>Produkt A</span><b>349 Kč</b></div>' +
-          '<div class="s-card"><div class="s-img"></div><span>Produkt B</span><b>590 Kč</b></div>' +
-          '<div class="s-card"><div class="s-img"></div><span>Produkt C</span><b>120 Kč</b></div>' +
-          '<div class="s-card"><div class="s-img"></div><span>Produkt D</span><b>880 Kč</b></div>' +
-        '</div></div>';
+    var T = escapeHtml(title);
+    if (kind === 'flux') {
+      return '<div class="t t-flux">' +
+        '<div class="tf-nav"><b>' + T + '//</b><span>WORK · INFO</span></div>' +
+        '<div class="tf-hero"><span class="tf-tag">DIGITAL PRODUCT STUDIO</span>' +
+        '<div class="tf-h">WE BUILD<br><span>PRODUCTS.</span></div></div>' +
+        '<div class="tf-ticker"><span>SHIP FAST ✱ BOLD ✱ RAW ✱ SHIP FAST ✱ BOLD ✱ RAW ✱</span></div></div>';
     }
-    if (kind === 'servis') {
-      return '<div class="s s-servis">' +
-        '<div class="s-nav"><b>' + escapeHtml(title) + '</b><span>Stav: aktivní</span></div>' +
-        '<div class="s-status"><span class="ok-dot"></span> Web běží — probíhá údržba</div>' +
-        '<div class="s-rows"><div class="s-line"></div><div class="s-line short"></div><div class="s-line"></div></div>' +
-        '</div>';
+    if (kind === 'lumen') {
+      return '<div class="t t-lumen">' +
+        '<div class="tl-nav"><b>' + T + '</b><span>Work · Journal · Contact</span></div>' +
+        '<div class="tl-hero"><div class="tl-h">Quiet design for brands that <em>say something.</em></div>' +
+        '<span class="tl-btn">Selected work →</span></div></div>';
     }
-    return '<div class="s s-web">' +
-      '<div class="s-nav"><b>' + escapeHtml(title) + '</b><span>O nás · Služby · Kontakt</span></div>' +
-      '<div class="s-hero"><div class="s-h1">' + escapeHtml(title) + '</div>' +
-      '<div class="s-sub">Důvěryhodná prezentace za pár minut</div>' +
-      '<span class="s-btn">Nezávazná poptávka</span></div></div>';
+    if (kind === 'prisma') {
+      return '<div class="t t-prisma"><div class="tp-mesh"></div>' +
+        '<div class="tp-nav"><b>◭ ' + T + '</b><span>Features · Pricing</span></div>' +
+        '<div class="tp-hero"><div class="tp-h">Ship products at the <span>speed of thought.</span></div>' +
+        '<span class="tp-btn">Start free</span></div></div>';
+    }
+    return '<div class="t t-nocturn">' +
+      '<div class="tn-nav"><b>' + T + '<i>⁂</i></b><span>Work · Studio · Contact</span></div>' +
+      '<div class="tn-hero"><div class="tn-h">We build<br>digital things<br>that <i>move.</i></div></div>' +
+      '<div class="tn-marq"><span>Branding ✦ Web ✦ Motion ✦ Art Direction ✦ Branding ✦ Web ✦</span></div></div>';
   }
 
   var demoType = document.getElementById('demoType');
-  var currentType = 'web';
+  var currentType = 'nocturn';
   if (demoType) {
     demoType.querySelectorAll('.seg-btn').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -227,7 +264,7 @@
       var t = TEMPLATES[currentType];
 
       // soubory
-      var base = ['index.html', 'style.css', 'script.js', 'README.md'];
+      var base = ['index.html', 'styles.css', 'script.js', 'README.md'];
       var allFiles = base.concat(t.extra);
       var ft = document.getElementById('demoFiles');
       ft.innerHTML = '';
@@ -240,7 +277,7 @@
       // repo + url
       document.getElementById('demoRepo').textContent = 'helion/' + slug;
       var urlEl = document.getElementById('demoUrl');
-      if (urlEl) urlEl.textContent = slug + '.cz';
+      if (urlEl) urlEl.textContent = slug + (t.tld || '.com');
 
       // readme z reálného payloadu šablony
       document.getElementById('demoReadme').textContent =

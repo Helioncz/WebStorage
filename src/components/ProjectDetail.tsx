@@ -1,16 +1,12 @@
 import { useEffect, useState } from "react";
-<<<<<<< Updated upstream
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-=======
-import { open, save } from "@tauri-apps/plugin-dialog";
->>>>>>> Stashed changes
 import { api, Project, Row } from "../lib/api";
 import { useStore } from "../store/useStore";
 import { STATUS_COLOR } from "./Sidebar";
 import { Modal, confirmDialog } from "./Modal";
 
-const TABS = ["Přehled", "Soubory", "Poznámky", "Odkazy", "Přístupy", "Úkoly", "Monitoring", "Export", "Historie"] as const;
+const TABS = ["Přehled", "Soubory", "Poznámky", "Odkazy", "Přístupy", "Úkoly", "Monitoring", "Historie"] as const;
 type Tab = (typeof TABS)[number];
 
 const LAUNCH_CHECKLIST = [
@@ -86,15 +82,38 @@ export default function ProjectDetail({ projectId }: { projectId: string }) {
               onClick={async () => {
                 const ok = await confirmDialog({
                   title: "Smazat projekt?",
-                  message: `Projekt „${project.name}" a veškerý jeho obsah (soubory, poznámky, přístupy, úkoly) budou nenávratně smazány.`,
+                  message: `Projekt „${project.name}" a jeho obsah (soubory, poznámky, přístupy, úkoly) budou smazány.`,
                   confirmLabel: "Smazat projekt",
                   danger: true,
                 });
-                if (ok) {
-                  await api.deleteProject(projectId);
-                  useStore.getState().openDashboard();
-                  refresh();
+                if (!ok) return;
+                // Propojený web?
+                const siteRel = await api.siteForProject(projectId).catch(() => null);
+                let alsoSite = false;
+                if (siteRel) {
+                  alsoSite = await confirmDialog({
+                    title: "Smazat i web?",
+                    message: `K projektu patří web „${siteRel}". Potvrď = smazat i web, Zrušit = jen projekt.`,
+                    confirmLabel: "Smazat i web",
+                    danger: true,
+                  });
                 }
+                await api.deleteProject(projectId);
+                let token: string | null = null;
+                if (alsoSite && siteRel) token = await api.siteTrash(siteRel).catch(() => null);
+                useStore.getState().openDashboard();
+                refresh();
+                useStore.getState().setUndo({
+                  message: alsoSite ? "Projekt a web smazány" : "Projekt smazán",
+                  restore: async () => {
+                    await api.restoreProject(projectId);
+                    if (token) await api.siteRestore(token);
+                  },
+                  commit: async () => {
+                    await api.purgeProject(projectId);
+                    if (token) await api.sitePurge(token);
+                  },
+                });
               }}
             >
               Smazat
@@ -119,7 +138,6 @@ export default function ProjectDetail({ projectId }: { projectId: string }) {
         {tab === "Přístupy" && <Credentials projectId={projectId} />}
         {tab === "Úkoly" && <Tasks projectId={projectId} />}
         {tab === "Monitoring" && <Monitoring projectId={projectId} />}
-        {tab === "Export" && <ExportTab project={project} />}
         {tab === "Historie" && <History projectId={projectId} />}
       </div>
     </div>
@@ -281,12 +299,9 @@ function WebReadiness({ projectId }: { projectId: string }) {
 
 function Files({ projectId }: { projectId: string }) {
   const [files, setFiles] = useState<Row[]>([]);
-<<<<<<< Updated upstream
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
-=======
   const [versionsOf, setVersionsOf] = useState<Row | null>(null);
->>>>>>> Stashed changes
   const load = () => api.listFiles(projectId).then(setFiles);
   useEffect(() => {
     load();
@@ -337,17 +352,11 @@ function Files({ projectId }: { projectId: string }) {
           {busy ? "Importuji…" : "+ Importovat soubory"}
         </button>
       </div>
-<<<<<<< Updated upstream
 
       <div className={"dropzone" + (dragOver ? " over" : "")}>
         {dragOver ? "Pusť soubory sem…" : "Přetáhni soubory z Finderu sem (drag & drop)"}
       </div>
 
-=======
-      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-        Import souboru stejného názvu vytvoří novou verzi — starší zůstanou v historii.
-      </div>
->>>>>>> Stashed changes
       {files.length === 0 ? (
         <div className="muted">Zatím žádné soubory.</div>
       ) : (
@@ -359,7 +368,9 @@ function Files({ projectId }: { projectId: string }) {
             </span>
             <span className="spacer" />
             <span className="muted">{(f.size / 1024).toFixed(0)} kB</span>
-<<<<<<< Updated upstream
+            <button className="ghost" title="Verze" onClick={() => setVersionsOf(f)}>
+              🕓
+            </button>
             <button
               className="ghost danger"
               onClick={async () => {
@@ -375,12 +386,6 @@ function Files({ projectId }: { projectId: string }) {
                 }
               }}
             >
-=======
-            <button className="ghost" title="Verze" onClick={() => setVersionsOf(f)}>
-              🕓 Verze
-            </button>
-            <button className="ghost danger" onClick={async () => { if (confirm(`Smazat soubor „${f.name}“?`)) { await api.deleteFile(f.id); load(); } }}>
->>>>>>> Stashed changes
               ✕
             </button>
           </div>
@@ -406,42 +411,37 @@ function FileVersions({
   }, [file.id]);
 
   const restore = async (vid: string) => {
-    if (!confirm("Obnovit tuto verzi? Aktuální obsah se uloží jako nová verze.")) return;
+    const ok = await confirmDialog({
+      title: "Obnovit verzi?",
+      message: "Aktuální obsah se uloží jako nová verze.",
+      confirmLabel: "Obnovit",
+    });
+    if (!ok) return;
     await api.restoreFileVersion(vid);
     await load();
     onChanged();
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="row between">
-          <strong>Verze: {file.name}</strong>
-          <button className="ghost" onClick={onClose}>
-            ✕
-          </button>
+    <Modal title={`Verze: ${file.name}`} onClose={onClose}>
+      {versions.length === 0 ? (
+        <div className="muted">
+          Žádné starší verze. Naimportuj soubor stejného názvu a vytvoříš novou verzi.
         </div>
-        {versions.length === 0 ? (
-          <div className="muted" style={{ marginTop: 10 }}>
-            Žádné starší verze. Naimportuj soubor stejného názvu a vytvoříš novou verzi.
+      ) : (
+        versions.map((v) => (
+          <div key={v.id} className="list-item">
+            <span>🕓</span>
+            <span className="muted">{(v.created_at || "").replace("T", " ").slice(0, 16)}</span>
+            <span className="spacer" />
+            <span className="muted">{(v.size / 1024).toFixed(0)} kB</span>
+            <button className="ghost" onClick={() => restore(v.id)}>
+              Obnovit
+            </button>
           </div>
-        ) : (
-          <div style={{ marginTop: 10 }}>
-            {versions.map((v) => (
-              <div key={v.id} className="list-item">
-                <span>🕓</span>
-                <span className="muted">{(v.created_at || "").replace("T", " ").slice(0, 16)}</span>
-                <span className="spacer" />
-                <span className="muted">{(v.size / 1024).toFixed(0)} kB</span>
-                <button className="ghost" onClick={() => restore(v.id)}>
-                  Obnovit
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+        ))
+      )}
+    </Modal>
   );
 }
 
@@ -511,7 +511,6 @@ function Notes({ projectId }: { projectId: string }) {
             </span>
             <span className="spacer" />
             <span className="muted">{(n.updated_at || "").slice(0, 10)}</span>
-<<<<<<< Updated upstream
             <button
               className="ghost danger"
               onClick={async () => {
@@ -519,9 +518,6 @@ function Notes({ projectId }: { projectId: string }) {
                 if (ok) { await api.deleteNote(n.id); load(); }
               }}
             >
-=======
-            <button className="ghost danger" onClick={async () => { if (confirm(`Smazat poznámku „${n.title}“?`)) { await api.deleteNote(n.id); load(); } }}>
->>>>>>> Stashed changes
               ✕
             </button>
           </div>
@@ -549,40 +545,17 @@ const LINK_TYPES = [
 function Links({ projectId }: { projectId: string }) {
   const [links, setLinks] = useState<Row[]>([]);
   const [editing, setEditing] = useState<Row | null>(null);
-<<<<<<< Updated upstream
-=======
-  const [error, setError] = useState("");
->>>>>>> Stashed changes
   const load = () => api.listLinks(projectId).then(setLinks);
   useEffect(() => {
     load();
-    setEditing(null);
   }, [projectId]);
 
-<<<<<<< Updated upstream
   const seedWebLinks = async () => {
     const existing = new Set(links.map((l) => (l.title || "").toLowerCase()));
     for (const l of QUICK_WEB_LINKS) {
       if (existing.has(l.title.toLowerCase())) continue;
       await api.saveLink(projectId, l.title, l.url, l.type, l.description);
     }
-=======
-  const saveLink = async () => {
-    if (!editing) return;
-    setError("");
-    const title = String(editing.title || "").trim();
-    const url = String(editing.url || "").trim();
-    if (!title || !url) {
-      setError("Vyplň název i URL.");
-      return;
-    }
-    if (!/^https?:\/\//i.test(url)) {
-      setError("URL musí začínat http:// nebo https://.");
-      return;
-    }
-    await api.saveLink(projectId, title, url, editing.type || undefined, editing.description || undefined, editing.id);
-    setEditing(null);
->>>>>>> Stashed changes
     load();
   };
 
@@ -590,53 +563,19 @@ function Links({ projectId }: { projectId: string }) {
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Odkazy</strong>
-<<<<<<< Updated upstream
         <div className="row">
           <button className="ghost" onClick={seedWebLinks}>Vložit web nástroje</button>
           <button className="primary" onClick={() => setEditing({})}>
             + Přidat odkaz
           </button>
         </div>
-=======
-        <button className="primary" onClick={() => setEditing({ title: "", url: "", type: "", description: "" })}>
-          + Přidat odkaz
-        </button>
->>>>>>> Stashed changes
       </div>
-      {editing && (
-        <div className="inline-form">
-          <div className="grid2">
-            <div className="field">
-              <label>Název</label>
-              <input autoFocus value={editing.title || ""} onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Typ</label>
-              <input value={editing.type || ""} onChange={(e) => setEditing({ ...editing, type: e.target.value })} placeholder="web, admin, hosting…" />
-            </div>
-          </div>
-          <div className="field">
-            <label>URL</label>
-            <input value={editing.url || ""} onChange={(e) => setEditing({ ...editing, url: e.target.value })} placeholder="https://…" />
-          </div>
-          <div className="field">
-            <label>Popis</label>
-            <input value={editing.description || ""} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
-          </div>
-          <div className="row">
-            <button className="primary" onClick={saveLink}>Uložit odkaz</button>
-            <button className="ghost" onClick={() => { setEditing(null); setError(""); }}>Zrušit</button>
-          </div>
-          {error && <div className="error">{error}</div>}
-        </div>
-      )}
       {links.length === 0 ? (
         <div className="muted">Žádné odkazy.</div>
       ) : (
         links.map((l) => (
           <div key={l.id} className="list-item">
             <span>🔗</span>
-<<<<<<< Updated upstream
             <div style={{ minWidth: 0 }}>
               <div className="row" style={{ gap: 6 }}>
                 <span>{l.title}</span>
@@ -657,15 +596,6 @@ function Links({ projectId }: { projectId: string }) {
                 if (ok) { await api.deleteLink(l.id); load(); }
               }}
             >
-=======
-            <div>
-              <div>{l.title}</div>
-              <button className="link-button muted" onClick={() => api.openExternalUrl(l.url)}>{l.url}</button>
-            </div>
-            <span className="spacer" />
-            <button className="ghost" onClick={() => setEditing(l)}>Upravit</button>
-            <button className="ghost danger" onClick={async () => { if (confirm(`Smazat odkaz „${l.title}“?`)) { await api.deleteLink(l.id); load(); } }}>
->>>>>>> Stashed changes
               ✕
             </button>
           </div>
@@ -758,43 +688,12 @@ function Credentials({ projectId }: { projectId: string }) {
   const [creds, setCreds] = useState<Row[]>([]);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<Row | null>(null);
-<<<<<<< Updated upstream
-=======
-  const [error, setError] = useState("");
->>>>>>> Stashed changes
   const load = () => api.listCredentials(projectId).then(setCreds);
   useEffect(() => {
     load();
     setRevealed({});
-    setEditing(null);
   }, [projectId]);
 
-<<<<<<< Updated upstream
-=======
-  const saveCredential = async () => {
-    if (!editing) return;
-    setError("");
-    const title = String(editing.title || "").trim();
-    if (!title) {
-      setError("Vyplň název přístupu.");
-      return;
-    }
-    const secret = editing.secret === "" && editing.id ? undefined : editing.secret;
-    await api.saveCredential({
-      id: editing.id,
-      projectId,
-      title,
-      ctype: editing.type || undefined,
-      username: editing.username || undefined,
-      secret,
-      url: editing.url || undefined,
-      note: editing.note || undefined,
-    });
-    setEditing(null);
-    load();
-  };
-
->>>>>>> Stashed changes
   const reveal = async (id: string) => {
     if (revealed[id] !== undefined) {
       const next = { ...revealed };
@@ -816,52 +715,13 @@ function Credentials({ projectId }: { projectId: string }) {
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Přístupy a hesla</strong>
-<<<<<<< Updated upstream
         <button className="primary" onClick={() => setEditing({})}>
-=======
-        <button className="primary" onClick={() => setEditing({ title: "", type: "", username: "", secret: "", url: "", note: "" })}>
->>>>>>> Stashed changes
           + Přidat přístup
         </button>
       </div>
       <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
         Hesla jsou uložená v šifrované databázi (SQLCipher). Zobrazí se až po vyžádání.
       </div>
-      {editing && (
-        <div className="inline-form">
-          <div className="grid2">
-            <div className="field">
-              <label>Název</label>
-              <input autoFocus value={editing.title || ""} onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Typ</label>
-              <input value={editing.type || ""} onChange={(e) => setEditing({ ...editing, type: e.target.value })} placeholder="admin, ftp, hosting…" />
-            </div>
-            <div className="field">
-              <label>Login</label>
-              <input value={editing.username || ""} onChange={(e) => setEditing({ ...editing, username: e.target.value })} />
-            </div>
-            <div className="field">
-              <label>Heslo {editing.id && <span className="muted">(prázdné = beze změny)</span>}</label>
-              <input type="password" value={editing.secret || ""} onChange={(e) => setEditing({ ...editing, secret: e.target.value })} />
-            </div>
-          </div>
-          <div className="field">
-            <label>URL</label>
-            <input value={editing.url || ""} onChange={(e) => setEditing({ ...editing, url: e.target.value })} placeholder="https://…" />
-          </div>
-          <div className="field">
-            <label>Poznámka</label>
-            <input value={editing.note || ""} onChange={(e) => setEditing({ ...editing, note: e.target.value })} />
-          </div>
-          <div className="row">
-            <button className="primary" onClick={saveCredential}>Uložit přístup</button>
-            <button className="ghost" onClick={() => { setEditing(null); setError(""); }}>Zrušit</button>
-          </div>
-          {error && <div className="error">{error}</div>}
-        </div>
-      )}
       {creds.length === 0 ? (
         <div className="muted">Žádné přístupy.</div>
       ) : (
@@ -887,7 +747,6 @@ function Credentials({ projectId }: { projectId: string }) {
             <button className="ghost" onClick={() => copy(c.id)}>
               Kopírovat
             </button>
-<<<<<<< Updated upstream
             <button className="ghost" onClick={() => setEditing(c)}>
               Upravit
             </button>
@@ -898,10 +757,6 @@ function Credentials({ projectId }: { projectId: string }) {
                 if (ok) { await api.deleteCredential(c.id); load(); }
               }}
             >
-=======
-            <button className="ghost" onClick={() => setEditing({ ...c, secret: "" })}>Upravit</button>
-            <button className="ghost danger" onClick={async () => { if (confirm(`Smazat přístup „${c.title}“?`)) { await api.deleteCredential(c.id); load(); } }}>
->>>>>>> Stashed changes
               ✕
             </button>
           </div>
@@ -1018,52 +873,21 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   done: "hotovo",
   cancelled: "zrušeno",
 };
-<<<<<<< Updated upstream
 const TASK_PRIORITY = [
   ["low", "nízká"],
   ["normal", "běžná"],
   ["high", "vysoká"],
   ["urgent", "urgentní"],
 ] as const;
-=======
->>>>>>> Stashed changes
 
 function Tasks({ projectId }: { projectId: string }) {
   const [tasks, setTasks] = useState<Row[]>([]);
   const [editing, setEditing] = useState<Row | null>(null);
-<<<<<<< Updated upstream
-=======
-  const [error, setError] = useState("");
->>>>>>> Stashed changes
   const load = () => api.listTasks(projectId).then(setTasks);
   useEffect(() => {
     load();
-    setEditing(null);
   }, [projectId]);
 
-<<<<<<< Updated upstream
-=======
-  const saveTask = async () => {
-    if (!editing) return;
-    setError("");
-    const title = String(editing.title || "").trim();
-    if (!title) {
-      setError("Vyplň název úkolu.");
-      return;
-    }
-    await api.saveTask({
-      id: editing.id,
-      projectId,
-      title,
-      status: editing.status || "new",
-      priority: editing.priority || "normal",
-      dueDate: editing.due_date || undefined,
-    });
-    setEditing(null);
-    load();
-  };
-
->>>>>>> Stashed changes
   const cycle = async (t: Row) => {
     const idx = TASK_STATUS.indexOf(t.status);
     const next = TASK_STATUS[(idx + 1) % TASK_STATUS.length];
@@ -1078,7 +902,19 @@ function Tasks({ projectId }: { projectId: string }) {
     load();
   };
 
-<<<<<<< Updated upstream
+  const toggleDone = async (t: Row) => {
+    const done = t.status === "done";
+    await api.saveTask({
+      id: t.id,
+      projectId,
+      title: t.title,
+      status: done ? "new" : "done",
+      priority: t.priority,
+      dueDate: t.due_date || undefined,
+    });
+    load();
+  };
+
   const overdue = (t: Row) =>
     t.due_date && t.status !== "done" && t.status !== "cancelled" && t.due_date.slice(0, 10) < new Date().toISOString().slice(0, 10);
 
@@ -1100,25 +936,10 @@ function Tasks({ projectId }: { projectId: string }) {
   const doneLaunch = launchTasks.filter((t) => t.status === "done").length;
   const launchPct = launchTasks.length ? Math.round((doneLaunch / launchTasks.length) * 100) : 0;
 
-=======
-  const toggleDone = async (t: Row) => {
-    await api.saveTask({
-      id: t.id,
-      projectId,
-      title: t.title,
-      status: t.status === "done" ? "new" : "done",
-      priority: t.priority,
-      dueDate: t.due_date || undefined,
-    });
-    load();
-  };
-
->>>>>>> Stashed changes
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Úkoly</strong>
-<<<<<<< Updated upstream
         <div className="row">
           <button className="ghost" onClick={seedLaunchChecklist}>Vložit checklist spuštění</button>
           <button className="primary" onClick={() => setEditing({})}>
@@ -1133,44 +954,6 @@ function Tasks({ projectId }: { projectId: string }) {
             <strong>{doneLaunch}/{launchTasks.length} hotovo · {launchPct}%</strong>
           </div>
           <div className="launch-progress"><span style={{ width: `${launchPct}%` }} /></div>
-=======
-        <button className="primary" onClick={() => setEditing({ title: "", status: "new", priority: "normal", due_date: "" })}>
-          + Nový úkol
-        </button>
-      </div>
-      {editing && (
-        <div className="inline-form">
-          <div className="field">
-            <label>Název úkolu</label>
-            <input autoFocus value={editing.title || ""} onChange={(e) => setEditing({ ...editing, title: e.target.value })} onKeyDown={(e) => e.key === "Enter" && saveTask()} />
-          </div>
-          <div className="grid2">
-            <div className="field">
-              <label>Stav</label>
-              <select value={editing.status || "new"} onChange={(e) => setEditing({ ...editing, status: e.target.value })}>
-                {TASK_STATUS.map((s) => <option key={s} value={s}>{TASK_STATUS_LABEL[s]}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Priorita</label>
-              <select value={editing.priority || "normal"} onChange={(e) => setEditing({ ...editing, priority: e.target.value })}>
-                <option value="low">nízká</option>
-                <option value="normal">běžná</option>
-                <option value="high">vysoká</option>
-                <option value="urgent">urgentní</option>
-              </select>
-            </div>
-          </div>
-          <div className="field">
-            <label>Termín</label>
-            <input type="date" value={(editing.due_date || "").slice(0, 10)} onChange={(e) => setEditing({ ...editing, due_date: e.target.value })} />
-          </div>
-          <div className="row">
-            <button className="primary" onClick={saveTask}>Uložit úkol</button>
-            <button className="ghost" onClick={() => { setEditing(null); setError(""); }}>Zrušit</button>
-          </div>
-          {error && <div className="error">{error}</div>}
->>>>>>> Stashed changes
         </div>
       )}
       {tasks.length === 0 ? (
@@ -1182,8 +965,15 @@ function Tasks({ projectId }: { projectId: string }) {
         </div>
       ) : (
         tasks.map((t) => (
-<<<<<<< Updated upstream
-          <div key={t.id} className="list-item">
+          <div key={t.id} className={"list-item task-row " + (t.status === "done" ? "done" : "")}>
+            <button
+              className="task-check"
+              title={t.status === "done" ? "Označit jako nehotové" : "Označit jako hotové"}
+              onClick={() => toggleDone(t)}
+              aria-pressed={t.status === "done"}
+            >
+              {t.status === "done" ? "✓" : ""}
+            </button>
             <button className="badge" title="Klikni pro změnu stavu" onClick={() => cycle(t)}>
               {TASK_STATUS_LABEL[t.status] || t.status}
             </button>
@@ -1195,22 +985,11 @@ function Tasks({ projectId }: { projectId: string }) {
               }}
               onClick={() => setEditing(t)}
             >
-=======
-          <div key={t.id} className={"list-item task-row " + (t.status === "done" ? "done" : "")}>
-            <button className="task-check" aria-pressed={t.status === "done"} onClick={() => toggleDone(t)}>
-              {t.status === "done" ? "✓" : ""}
-            </button>
-            <button className="badge" title="Klikni pro další stav" onClick={() => cycle(t)}>
-              {TASK_STATUS_LABEL[t.status] || t.status}
-            </button>
-            <span style={{ textDecoration: t.status === "done" ? "line-through" : "none", cursor: "pointer" }} onClick={() => setEditing(t)}>
->>>>>>> Stashed changes
               {t.title}
             </span>
             {t.priority === "high" && <span className="badge">⬆ vysoká</span>}
             {t.priority === "urgent" && <span className="badge" style={{ color: "var(--danger)" }}>⚠ urgentní</span>}
             <span className="spacer" />
-<<<<<<< Updated upstream
             {t.due_date && (
               <span className="muted" style={{ color: overdue(t) ? "var(--danger)" : undefined }}>
                 {t.due_date.slice(0, 10)}
@@ -1223,10 +1002,6 @@ function Tasks({ projectId }: { projectId: string }) {
                 if (ok) { await api.deleteTask(t.id); load(); }
               }}
             >
-=======
-            {t.due_date && <span className="muted">{t.due_date.slice(0, 10)}</span>}
-            <button className="ghost danger" onClick={async () => { if (confirm(`Smazat úkol „${t.title}“?`)) { await api.deleteTask(t.id); load(); } }}>
->>>>>>> Stashed changes
               ✕
             </button>
           </div>
@@ -1244,7 +1019,6 @@ function Tasks({ projectId }: { projectId: string }) {
   );
 }
 
-<<<<<<< Updated upstream
 function TaskModal({
   projectId,
   task,
@@ -1312,41 +1086,33 @@ function TaskModal({
         <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
     </Modal>
-=======
+  );
+}
+
 // ----------------------------- Monitoring ---------------------------------
 
 function sslDaysLeft(iso?: string | null): number | null {
   if (!iso) return null;
-  const ms = new Date(iso).getTime() - Date.now();
-  return Math.floor(ms / 86400000);
+  return Math.floor((new Date(iso).getTime() - Date.now()) / 86400000);
 }
 
 function Monitoring({ projectId }: { projectId: string }) {
   const [monitors, setMonitors] = useState<Row[]>([]);
   const [checking, setChecking] = useState<Record<string, boolean>>({});
-  const [editing, setEditing] = useState<Row | null>(null);
-  const [error, setError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState("");
+  const [url, setUrl] = useState("");
   const load = () => api.listMonitors(projectId).then(setMonitors);
   useEffect(() => {
     load();
-    setEditing(null);
   }, [projectId]);
 
-  const saveMonitor = async () => {
-    if (!editing) return;
-    setError("");
-    const label = String(editing.label || "").trim();
-    const url = String(editing.url || "").trim();
-    if (!label || !url) {
-      setError("Vyplň popis i URL.");
-      return;
-    }
-    if (!/^https?:\/\//i.test(url)) {
-      setError("URL musí začínat http:// nebo https://.");
-      return;
-    }
-    await api.saveMonitor(projectId, label, url, editing.id);
-    setEditing(null);
+  const add = async () => {
+    if (!label.trim() || !url.trim()) return;
+    await api.saveMonitor(projectId, label.trim(), url.trim());
+    setLabel("");
+    setUrl("");
+    setAdding(false);
     load();
   };
 
@@ -1362,21 +1128,17 @@ function Monitoring({ projectId }: { projectId: string }) {
     }
   };
 
-  const checkAll = async () => {
-    for (const m of monitors) await check(m.id);
-  };
-
   return (
     <div className="card">
       <div className="row between" style={{ marginBottom: 10 }}>
         <strong>Monitoring webů</strong>
         <div className="row">
           {monitors.length > 0 && (
-            <button className="ghost" onClick={checkAll}>
+            <button className="ghost" onClick={() => monitors.forEach((m) => check(m.id))}>
               Zkontrolovat vše
             </button>
           )}
-          <button className="primary" onClick={() => setEditing({ label: "", url: "" })}>
+          <button className="primary" onClick={() => setAdding((v) => !v)}>
             + Přidat web
           </button>
         </div>
@@ -1384,25 +1146,28 @@ function Monitoring({ projectId }: { projectId: string }) {
       <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
         Kontrola dostupnosti (HTTP status + latence) a expirace SSL certifikátu. Spouští se ručně.
       </div>
-      {editing && (
-        <div className="inline-form">
-          <div className="grid2">
-            <div className="field">
-              <label>Popis</label>
-              <input autoFocus value={editing.label || ""} onChange={(e) => setEditing({ ...editing, label: e.target.value })} placeholder="Produkční web" />
-            </div>
-            <div className="field">
-              <label>URL</label>
-              <input value={editing.url || ""} onChange={(e) => setEditing({ ...editing, url: e.target.value })} placeholder="https://www.klient.cz" />
-            </div>
+
+      {adding && (
+        <div className="card" style={{ background: "transparent" }}>
+          <div className="field">
+            <label>Popis</label>
+            <input value={label} placeholder="Produkční web" onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>URL</label>
+            <input value={url} placeholder="https://www.klient.cz" onChange={(e) => setUrl(e.target.value)} />
           </div>
           <div className="row">
-            <button className="primary" onClick={saveMonitor}>Uložit monitoring</button>
-            <button className="ghost" onClick={() => { setEditing(null); setError(""); }}>Zrušit</button>
+            <button className="primary" onClick={add} disabled={!label.trim() || !url.trim()}>
+              Uložit
+            </button>
+            <button className="ghost" onClick={() => setAdding(false)}>
+              Zrušit
+            </button>
           </div>
-          {error && <div className="error">{error}</div>}
         </div>
       )}
+
       {monitors.length === 0 ? (
         <div className="muted">Žádné weby. Přidej web tlačítkem nahoře.</div>
       ) : (
@@ -1411,26 +1176,20 @@ function Monitoring({ projectId }: { projectId: string }) {
           const ok = m.last_ok === 1;
           return (
             <div key={m.id} className="list-item" style={{ alignItems: "flex-start" }}>
-              <span title={m.last_checked_at ? (ok ? "Dostupné" : "Nedostupné") : "Nezkontrolováno"}>
-                {m.last_checked_at ? (ok ? "🟢" : "🔴") : "⚪"}
-              </span>
+              <span>{m.last_checked_at ? (ok ? "🟢" : "🔴") : "⚪"}</span>
               <div>
                 <div>{m.label}</div>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  {m.url}
-                </div>
+                <div className="muted" style={{ fontSize: 12 }}>{m.url}</div>
                 {m.last_checked_at && (
                   <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                     {m.last_status ? `HTTP ${m.last_status}` : "nedostupné"}
                     {m.last_latency_ms != null ? ` · ${m.last_latency_ms} ms` : ""}
                     {m.last_error ? ` · ${m.last_error}` : ""}
                     {days != null && (
-                      <>
+                      <span style={{ color: days < 14 ? "var(--danger, #e44)" : "inherit" }}>
                         {" · "}
-                        <span style={{ color: days < 14 ? "var(--danger, #e44)" : "inherit" }}>
-                          SSL {days >= 0 ? `vyprší za ${days} dní` : `vypršel před ${-days} dny`}
-                        </span>
-                      </>
+                        {days >= 0 ? `SSL vyprší za ${days} dní` : `SSL vypršel před ${-days} dny`}
+                      </span>
                     )}
                   </div>
                 )}
@@ -1439,11 +1198,16 @@ function Monitoring({ projectId }: { projectId: string }) {
               <button className="ghost" disabled={checking[m.id]} onClick={() => check(m.id)}>
                 {checking[m.id] ? "…" : "Zkontrolovat"}
               </button>
-              <button className="ghost" onClick={() => setEditing(m)}>Upravit</button>
               <button
                 className="ghost danger"
                 onClick={async () => {
-                  if (confirm(`Odebrat monitoring „${m.label}“?`)) {
+                  const c = await confirmDialog({
+                    title: "Odebrat monitoring?",
+                    message: m.label,
+                    confirmLabel: "Odebrat",
+                    danger: true,
+                  });
+                  if (c) {
                     await api.deleteMonitor(m.id);
                     load();
                   }
@@ -1456,114 +1220,6 @@ function Monitoring({ projectId }: { projectId: string }) {
         })
       )}
     </div>
-  );
-}
-
-// ----------------------------- Export -------------------------------------
-
-function ExportTab({ project }: { project: Project }) {
-  const [srcDir, setSrcDir] = useState<string>("");
-  const [baseUrl, setBaseUrl] = useState<string>("");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ files: number; bytes: number; zipPath: string } | null>(null);
-  const [error, setError] = useState<string>("");
-
-  const pickFolder = async () => {
-    const dir = await open({ directory: true, title: "Vyber složku webu k exportu" });
-    if (typeof dir === "string") setSrcDir(dir);
-  };
-
-  const slug = (project.name || "web")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-
-  const doExport = async () => {
-    setError("");
-    setResult(null);
-    if (!srcDir) {
-      setError("Nejdřív vyber složku webu.");
-      return;
-    }
-    const destZip = await save({
-      title: "Uložit ZIP pro zákazníka",
-      defaultPath: `${slug || "web"}-export.zip`,
-      filters: [{ name: "ZIP archiv", extensions: ["zip"] }],
-    });
-    if (!destZip) return;
-    setBusy(true);
-    try {
-      const r = await api.exportSite({
-        srcDir,
-        destZip,
-        projectName: project.name || "Web",
-        client: project.client || undefined,
-        baseUrl: baseUrl || undefined,
-        projectId: project.id,
-      });
-      setResult(r);
-    } catch (e: any) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="card">
-      <strong>Export webu pro zákazníka</strong>
-      <div className="muted" style={{ fontSize: 12, margin: "6px 0 14px" }}>
-        Vybranou složku zabalí do ZIPu připraveného k předání — vyhodí{" "}
-        <code className="kbd">node_modules</code>, <code className="kbd">.git</code>, build složky
-        a citlivé soubory (<code className="kbd">.env</code>) a přidá <code className="kbd">HANDOFF.md</code>{" "}
-        s pokyny pro nasazení.
-      </div>
-
-      <div className="field">
-        <label>Složka webu</label>
-        <div className="row">
-          <input
-            value={srcDir}
-            placeholder="Vyber složku se zdrojem webu…"
-            onChange={(e) => setSrcDir(e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button className="ghost" onClick={pickFolder}>
-            Procházet…
-          </button>
-        </div>
-      </div>
-
-      <div className="field">
-        <label>Cílová adresa / doména (volitelné)</label>
-        <input
-          value={baseUrl}
-          placeholder="např. https://www.klient.cz"
-          onChange={(e) => setBaseUrl(e.target.value)}
-        />
-      </div>
-
-      <button className="primary" disabled={busy} onClick={doExport}>
-        {busy ? "Balím…" : "📦 Vytvořit ZIP pro zákazníka"}
-      </button>
-
-      {error && (
-        <div className="muted" style={{ color: "var(--danger, #e44)", marginTop: 12 }}>
-          {error}
-        </div>
-      )}
-      {result && (
-        <div style={{ marginTop: 14 }}>
-          <div>✅ Hotovo — {result.files} souborů, {(result.bytes / 1024 / 1024).toFixed(2)} MB.</div>
-          <code className="kbd" style={{ display: "inline-block", marginTop: 6 }}>
-            {result.zipPath}
-          </code>
-        </div>
-      )}
-    </div>
->>>>>>> Stashed changes
   );
 }
 

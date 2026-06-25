@@ -26,24 +26,34 @@
   <div class="glow glow-1" aria-hidden="true"></div>
   <div class="glow glow-2" aria-hidden="true"></div>
 
-  <!-- ===== BOOT INTRO (jen při reloadu z vrchu) ===== -->
-  <div class="boot" id="boot" aria-hidden="true">
-    <div class="boot-inner">
-      <svg class="boot-logo" viewBox="0 0 32 32" width="64" height="64">
+  <!-- ===== VLASTNÍ KURZOR ===== -->
+  <div class="cur-ring" id="curRing" aria-hidden="true"></div>
+  <div class="cur-dot" id="curDot" aria-hidden="true"></div>
+
+  <!-- ===== INTRO SPLASH (celá obrazovka při načtení) ===== -->
+  <section class="intro" id="intro" aria-label="Úvod">
+    <div class="intro-inner" id="introInner">
+      <svg class="intro-logo" viewBox="0 0 32 32" width="150" height="150" aria-hidden="true">
         <rect width="32" height="32" rx="8" fill="#4f8cff" />
-        <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+        <path class="il-roof" d="M6 25V16a10 10 0 0 1 20 0v9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" />
+        <path class="il-door" d="M13 14.5 10.4 17.6 13 20.7M19 14.5 21.6 17.6 19 20.7M17 12.8 15 22" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
-      <pre class="boot-log" id="bootLog"></pre>
-      <div class="boot-progress"><span id="bootBar"></span></div>
+      <h1 class="intro-name">
+        <span>Project</span> <span>Hangar</span>
+      </h1>
+      <p class="intro-tag">Z nápadu na hotový web během pár minut.</p>
     </div>
-  </div>
+    <a class="intro-scroll" href="#top" id="introScroll">
+      <span>scroll</span><span class="chev">⌄</span>
+    </a>
+  </section>
 
   <!-- ===== STICKY NAV ===== -->
   <header class="nav" id="nav">
     <a href="#top" class="brand">
       <svg class="logo" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
         <rect width="32" height="32" rx="7" fill="#4f8cff" />
-        <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+        <path d="M6 25V16a10 10 0 0 1 20 0v9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" /><path d="M13 14.5 10.4 17.6 13 20.7M19 14.5 21.6 17.6 19 20.7M17 12.8 15 22" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
       <span class="brand-name">Project Hangar</span>
     </a>
@@ -85,7 +95,7 @@
             <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
             <svg class="logo tb-logo" viewBox="0 0 32 32" width="15" height="15" aria-hidden="true">
               <rect width="32" height="32" rx="7" fill="#4f8cff" />
-              <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+              <path d="M6 25V16a10 10 0 0 1 20 0v9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" /><path d="M13 14.5 10.4 17.6 13 20.7M19 14.5 21.6 17.6 19 20.7M17 12.8 15 22" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <span class="app-title">Project Hangar — workspace</span>
           </div>
@@ -127,7 +137,7 @@
           <div class="dl-head">
             <svg class="dl-icon" viewBox="0 0 32 32" width="44" height="44" aria-hidden="true">
               <rect width="32" height="32" rx="8" fill="#4f8cff" />
-              <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+              <path d="M6 25V16a10 10 0 0 1 20 0v9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" /><path d="M13 14.5 10.4 17.6 13 20.7M19 14.5 21.6 17.6 19 20.7M17 12.8 15 22" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <div>
               <h2>Project Hangar</h2>
@@ -224,11 +234,12 @@
             <input type="text" id="demoName" placeholder="muj-novy-web" value="muj-novy-web" maxlength="40" />
           </label>
           <div class="field">
-            <span>Šablona</span>
-            <div class="seg seg-col" id="demoType" role="group" aria-label="Šablona">
-              <button class="seg-btn active" data-type="web"><strong>Webová prezentace</strong><em>Klasický firemní web na klíč</em></button>
-              <button class="seg-btn" data-type="eshop"><strong>E-shop</strong><em>Internetový obchod</em></button>
-              <button class="seg-btn" data-type="servis"><strong>Servisní zakázka</strong><em>Údržba / úprava webu</em></button>
+            <span>Šablona webu</span>
+            <div class="seg seg-col" id="demoType" role="group" aria-label="Šablona webu">
+              <button class="seg-btn active" data-type="nocturn"><strong>NOCTÜRN</strong><em>Kreativní agentura · dark + acid lime</em></button>
+              <button class="seg-btn" data-type="flux"><strong>FLUX//</strong><em>Digital product studio · brutalismus</em></button>
+              <button class="seg-btn" data-type="lumen"><strong>LUMEN</strong><em>Editorial / luxury · serif</em></button>
+              <button class="seg-btn" data-type="prisma"><strong>PRISMA</strong><em>SaaS landing · glassmorphism</em></button>
             </div>
           </div>
           <button class="btn btn-primary" id="demoRun">Vygenerovat ukázku projektu</button>
@@ -382,7 +393,7 @@
     <div class="foot-brand">
       <svg class="logo" viewBox="0 0 32 32" width="22" height="22" aria-hidden="true">
         <rect width="32" height="32" rx="6" fill="#4f8cff" />
-        <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+        <path d="M6 25V16a10 10 0 0 1 20 0v9" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" /><path d="M13 14.5 10.4 17.6 13 20.7M19 14.5 21.6 17.6 19 20.7M17 12.8 15 22" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
       </svg> Project Hangar
     </div>
     <span class="foot-meta">© 2026 Helion · v1.0.0 · Vyrobeno v Project Hangaru</span>

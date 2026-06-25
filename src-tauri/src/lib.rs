@@ -1,19 +1,16 @@
 mod cloud;
+mod cloud_config;
 mod crypto;
 mod db;
-mod export;
 mod files;
-<<<<<<< Updated upstream
 mod git;
+mod monitor;
 mod netlify;
+mod redesign;
 mod sites;
 mod templates;
-=======
-mod monitor;
->>>>>>> Stashed changes
 
 use chrono::Utc;
-use rand::RngCore;
 use rusqlite::types::ValueRef;
 use rusqlite::{params, Connection, Params, ToSql};
 use serde_json::{Map, Value};
@@ -28,8 +25,12 @@ use uuid::Uuid;
 struct Inner {
     conn: Option<Connection>,
     vault_dir: PathBuf,
-    // Master heslo drzene v pameti jen po dobu odemceni (pro odvozeni sync klice).
+    // Master heslo drzene v pameti jen po dobu odemceni (stary lokalni rezim).
     password: Option<String>,
+    // Cloud ucet (drzeno v pameti po dobu prihlaseni).
+    session: Option<cloud::Session>,
+    enc_key: Option<[u8; 32]>,
+    sqlcipher_key: Option<String>,
 }
 
 pub struct AppState {
@@ -101,33 +102,16 @@ fn reindex(conn: &Connection, etype: &str, id: &str, project_id: &str, title: &s
     );
 }
 
-<<<<<<< Updated upstream
 fn set_setting_kv(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
     conn.execute(
         "INSERT INTO app_settings (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = ?2",
-=======
-fn config_get(conn: &Connection, key: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT value FROM app_config WHERE key = ?1",
-        params![key],
-        |r| r.get::<_, String>(0),
-    )
-    .ok()
-}
-
-fn config_set(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO app_config (key, value) VALUES (?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
->>>>>>> Stashed changes
         params![key, value],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-<<<<<<< Updated upstream
 fn get_setting_kv(conn: &Connection, key: &str) -> Option<String> {
     conn.query_row(
         "SELECT value FROM app_settings WHERE key = ?1",
@@ -153,39 +137,6 @@ fn resolve_default_sites_root() -> PathBuf {
         return PathBuf::from(home).join("HangarSites");
     }
     PathBuf::from(".")
-=======
-fn object_key(conn: &Connection) -> Result<[u8; 32], String> {
-    let hex_key = match config_get(conn, "object_key") {
-        Some(existing) => existing,
-        None => {
-            let mut key = [0u8; 32];
-            rand::thread_rng().fill_bytes(&mut key);
-            let hex_key = hex::encode(key);
-            config_set(conn, "object_key", &hex_key)?;
-            hex_key
-        }
-    };
-    let bytes = hex::decode(hex_key).map_err(|e| format!("object_key: {e}"))?;
-    if bytes.len() != 32 {
-        return Err("object_key má neplatnou délku".into());
-    }
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&bytes);
-    Ok(out)
-}
-
-fn migrate_plaintext_objects(conn: &Connection, vault_dir: &PathBuf) -> Result<(), String> {
-    let key = object_key(conn)?;
-    let hashes = query_json(conn, "SELECT DISTINCT blob_hash FROM project_files", params![])?;
-    for row in hashes {
-        let Some(hash) = row.get("blob_hash").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        let bytes = files::read_object(vault_dir, hash, &key)?;
-        files::store_object(vault_dir, &bytes, &key)?;
-    }
-    Ok(())
->>>>>>> Stashed changes
 }
 
 fn open_keyed(db_path: &PathBuf, key_hex: &str) -> Result<Connection, String> {
@@ -233,7 +184,6 @@ fn initialize(password: String, state: State<AppState>) -> Result<(), String> {
     let key = crypto::derive_key_hex(&password, &salt)?;
     let conn = open_keyed(&db_path, &key)?;
     db::apply_schema(&conn).map_err(|e| e.to_string())?;
-    migrate_plaintext_objects(&conn, &g.vault_dir)?;
     g.conn = Some(conn);
     g.password = Some(password);
     Ok(())
@@ -248,16 +198,12 @@ fn unlock(password: String, state: State<AppState>) -> Result<(), String> {
     let key = crypto::derive_key_hex(&password, &salt)?;
     let conn = open_keyed(&db_path, &key)?;
     db::apply_schema(&conn).map_err(|e| e.to_string())?;
-<<<<<<< Updated upstream
     // Nacti ulozenou cestu k webum (pokud uzivatel nastavil vlastni).
     if let Some(v) = get_setting_kv(&conn, "sites_root") {
         if !v.is_empty() {
             *state.sites_root.lock().unwrap() = PathBuf::from(v);
         }
     }
-=======
-    migrate_plaintext_objects(&conn, &g.vault_dir)?;
->>>>>>> Stashed changes
     g.conn = Some(conn);
     g.password = Some(password);
     Ok(())
@@ -276,6 +222,7 @@ fn lock(state: State<AppState>) {
 fn reset_vault(state: State<AppState>) -> Result<(), String> {
     let mut g = state.inner.lock().unwrap();
     g.conn = None;
+    g.password = None;
     let _ = fs::remove_file(g.vault_dir.join("vault.db"));
     let _ = fs::remove_file(g.vault_dir.join("vault.salt"));
     Ok(())
@@ -494,15 +441,77 @@ fn get_project_row(conn: &Connection, id: &str) -> Result<Value, String> {
 
 #[tauri::command]
 fn delete_project(id: String, state: State<AppState>) -> Result<(), String> {
+    // Mekke smazani: skryje projekt (deleted_at), ale necha ho obnovitelny.
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    conn.execute(
+        "UPDATE projects SET deleted_at = ?1 WHERE id = ?2",
+        params![now(), id],
+    )
+    .map_err(|e| e.to_string())?;
+    let _ = conn.execute("DELETE FROM search_index WHERE project_id = ?1", params![id]);
+    Ok(())
+}
+
+/// Obnovi mekce smazany projekt (pro 10s "Vrátit").
+#[tauri::command]
+fn restore_project(id: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    conn.execute(
+        "UPDATE projects SET deleted_at = NULL WHERE id = ?1",
+        params![id],
+    )
+    .map_err(|e| e.to_string())?;
+    if let Ok(p) = get_project_row(conn, &id) {
+        let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        reindex(conn, "project", &id, &id, name, "");
+    }
+    Ok(())
+}
+
+/// Trvale smaze projekt (po vyprseni "Vrátit" okna).
+#[tauri::command]
+fn purge_project(id: String, state: State<AppState>) -> Result<(), String> {
     let g = state.inner.lock().unwrap();
     let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
     conn.execute("DELETE FROM projects WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
-    let _ = conn.execute(
-        "DELETE FROM search_index WHERE project_id = ?1",
-        params![id],
-    );
+    let _ = conn.execute("DELETE FROM search_index WHERE project_id = ?1", params![id]);
     Ok(())
+}
+
+/// Najde projekt propojeny s danym webem (přes odkaz typu 'site').
+#[tauri::command]
+fn project_for_site(rel: String, state: State<AppState>) -> Result<Option<String>, String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    let id = conn
+        .query_row(
+            "SELECT l.project_id FROM project_links l
+             JOIN projects p ON p.id = l.project_id
+             WHERE l.type = 'site' AND l.url = ?1 AND p.deleted_at IS NULL
+             LIMIT 1",
+            params![rel],
+            |r| r.get::<_, String>(0),
+        )
+        .ok();
+    Ok(id)
+}
+
+/// Najde web (rel) propojeny s daným projektem.
+#[tauri::command]
+fn site_for_project(id: String, state: State<AppState>) -> Result<Option<String>, String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    let rel = conn
+        .query_row(
+            "SELECT url FROM project_links WHERE project_id = ?1 AND type = 'site' LIMIT 1",
+            params![id],
+            |r| r.get::<_, String>(0),
+        )
+        .ok();
+    Ok(rel)
 }
 
 #[tauri::command]
@@ -797,8 +806,7 @@ fn import_file(project_id: String, src_path: String, state: State<AppState>) -> 
     let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
     let path = PathBuf::from(&src_path);
     let bytes = fs::read(&path).map_err(|e| format!("cteni souboru: {e}"))?;
-    let key = object_key(conn)?;
-    let hash = files::store_object(&g.vault_dir, &bytes, &key)?;
+    let hash = files::store_object(&g.vault_dir, &bytes)?;
     let name = path
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
@@ -807,8 +815,7 @@ fn import_file(project_id: String, src_path: String, state: State<AppState>) -> 
         .extension()
         .map(|s| s.to_string_lossy().into_owned());
 
-    // Verzovani: pokud uz soubor stejneho jmena v projektu existuje, zarchivuj
-    // jeho aktualni blob jako verzi a aktualizuj zaznam novym obsahem.
+    // Verzovani: soubor stejneho jmena v projektu -> archivuj starou verzi a aktualizuj.
     let existing: Option<(String, String, i64)> = conn
         .query_row(
             "SELECT id, blob_hash, size FROM project_files WHERE project_id = ?1 AND name = ?2",
@@ -816,11 +823,9 @@ fn import_file(project_id: String, src_path: String, state: State<AppState>) -> 
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .ok();
-
     if let Some((fid, old_hash, old_size)) = existing {
-        // Stejny obsah -> nic neverzujeme.
         if old_hash == hash {
-            return Ok(fid);
+            return Ok(fid); // stejny obsah, neverzujeme
         }
         conn.execute(
             "INSERT INTO project_file_versions (id, file_id, blob_hash, size, comment, created_at)
@@ -880,7 +885,6 @@ fn restore_file_version(version_id: String, state: State<AppState>) -> Result<()
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .map_err(|e| e.to_string())?;
-    // Aktualni obsah zachovame jako novou verzi.
     conn.execute(
         "INSERT INTO project_file_versions (id, file_id, blob_hash, size, comment, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -892,7 +896,6 @@ fn restore_file_version(version_id: String, state: State<AppState>) -> Result<()
         params![blob_hash, size, file_id],
     )
     .map_err(|e| e.to_string())?;
-    // Obnovenou verzi z historie odebereme (stala se aktualni).
     conn.execute("DELETE FROM project_file_versions WHERE id = ?1", params![version_id])
         .map_err(|e| e.to_string())?;
     log_event(conn, &project_id, "file_restored", &format!("Obnovena verze: {name}"));
@@ -911,8 +914,7 @@ fn open_file(id: String, state: State<AppState>) -> Result<(), String> {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .map_err(|e| e.to_string())?;
-    let key = object_key(conn)?;
-    let bytes = files::read_object(&g.vault_dir, &hash, &key)?;
+    let bytes = files::read_object(&g.vault_dir, &hash)?;
     let tmp = std::env::temp_dir().join(format!("hangar_{name}"));
     fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
     tauri_plugin_opener::open_path(tmp.to_string_lossy().to_string(), None::<&str>)
@@ -932,15 +934,6 @@ fn delete_file(id: String, state: State<AppState>) -> Result<(), String> {
         params![id],
     );
     Ok(())
-}
-
-#[tauri::command]
-fn open_external_url(url: String) -> Result<(), String> {
-    let trimmed = url.trim();
-    if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
-        return Err("Otevřít lze jen adresy začínající http:// nebo https://.".into());
-    }
-    tauri_plugin_opener::open_url(trimmed, None::<&str>).map_err(|e| e.to_string())
 }
 
 // ----------------------------- Historie ----------------------------------
@@ -1021,7 +1014,6 @@ fn dashboard(state: State<AppState>) -> Result<Value, String> {
     }))
 }
 
-<<<<<<< Updated upstream
 // ----------------------------- Weby (site folders) -----------------------
 
 #[derive(serde::Serialize)]
@@ -1260,6 +1252,57 @@ fn delete_site(rel: String, state: State<AppState>) -> Result<(), String> {
     if dir.is_dir() {
         fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Mekce smaze web: přesune ho do .trash a vrátí token (pro 10s "Vrátit").
+#[tauri::command]
+fn site_trash(rel: String, state: State<AppState>) -> Result<String, String> {
+    if !rel.starts_with("sites/") || rel.contains("..") {
+        return Err("Smazat lze jen pracovní web (sites/).".into());
+    }
+    let root = state.sites_root.lock().unwrap().clone();
+    let dir = root.join(&rel);
+    if !dir.is_dir() {
+        return Err("Web neexistuje.".into());
+    }
+    let token = new_id();
+    let trash = root.join(".trash");
+    fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
+    fs::rename(&dir, trash.join(&token)).map_err(|e| format!("přesun do koše: {e}"))?;
+    fs::write(trash.join(format!("{token}.rel")), &rel).map_err(|e| e.to_string())?;
+    Ok(token)
+}
+
+/// Obnoví web z koše zpět na původní místo.
+#[tauri::command]
+fn site_restore(token: String, state: State<AppState>) -> Result<(), String> {
+    if token.contains('/') || token.contains("..") {
+        return Err("Neplatný token.".into());
+    }
+    let root = state.sites_root.lock().unwrap().clone();
+    let trash = root.join(".trash");
+    let rel = fs::read_to_string(trash.join(format!("{token}.rel")))
+        .map_err(|_| "Položka v koši nenalezena.".to_string())?;
+    let dest = root.join(rel.trim());
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::rename(trash.join(&token), &dest).map_err(|e| format!("obnova: {e}"))?;
+    let _ = fs::remove_file(trash.join(format!("{token}.rel")));
+    Ok(())
+}
+
+/// Trvale smaže web z koše (po vypršení "Vrátit").
+#[tauri::command]
+fn site_purge(token: String, state: State<AppState>) -> Result<(), String> {
+    if token.contains('/') || token.contains("..") {
+        return Err("Neplatný token.".into());
+    }
+    let root = state.sites_root.lock().unwrap().clone();
+    let trash = root.join(".trash");
+    let _ = fs::remove_dir_all(trash.join(&token));
+    let _ = fs::remove_file(trash.join(format!("{token}.rel")));
     Ok(())
 }
 
@@ -1684,305 +1727,10 @@ fn sync_check_latest(rel: String, state: State<AppState>) -> Result<Value, Strin
         "latest_id": latest_id,
         "changed": latest_id > last_seen,
         "latest": latest,
-=======
-// ----------------------------- Export webu -------------------------------
-// Zabali zdrojovou slozku webu do .zip pripraveneho k predani zakaznikovi.
-// Pri zadanem project_id navic zaloguje udalost do historie projektu.
-
-#[tauri::command]
-fn export_site(
-    src_dir: String,
-    dest_zip: String,
-    project_name: String,
-    client: Option<String>,
-    base_url: Option<String>,
-    project_id: Option<String>,
-    state: State<AppState>,
-) -> Result<export::ExportSummary, String> {
-    let summary = export::export_site(
-        &src_dir,
-        &dest_zip,
-        &project_name,
-        client.as_deref().unwrap_or(""),
-        base_url.as_deref(),
-    )?;
-    if let Some(pid) = project_id {
-        let g = state.inner.lock().unwrap();
-        if let Some(conn) = g.conn.as_ref() {
-            log_event(
-                conn,
-                &pid,
-                "exported",
-                &format!("Export webu pro zákazníka ({} souborů)", summary.files),
-            );
-        }
-    }
-    Ok(summary)
-}
-
-// ----------------------------- Sablony -----------------------------------
-
-#[tauri::command]
-fn list_templates(state: State<AppState>) -> Result<Vec<Value>, String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    query_json(
-        conn,
-        "SELECT * FROM project_templates ORDER BY is_builtin DESC, name",
-        params![],
-    )
-}
-
-#[tauri::command]
-fn save_template(
-    name: String,
-    description: Option<String>,
-    payload_json: String,
-    state: State<AppState>,
-) -> Result<String, String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    // Overeni validniho JSON.
-    serde_json::from_str::<Value>(&payload_json).map_err(|e| format!("neplatný JSON šablony: {e}"))?;
-    let id = new_id();
-    conn.execute(
-        "INSERT INTO project_templates (id, name, description, payload_json, is_builtin, created_at)
-         VALUES (?1, ?2, ?3, ?4, 0, ?5)",
-        params![id, name, description, payload_json, now()],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(id)
-}
-
-#[tauri::command]
-fn delete_template(id: String, state: State<AppState>) -> Result<(), String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    // Vestavene sablony nelze mazat.
-    conn.execute(
-        "DELETE FROM project_templates WHERE id = ?1 AND is_builtin = 0",
-        params![id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Zalozi novy projekt podle sablony (typ, stitky, ukoly, odkazy, poznamka).
-#[tauri::command]
-fn create_project_from_template(
-    template_id: String,
-    name: String,
-    client: Option<String>,
-    state: State<AppState>,
-) -> Result<String, String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    let payload: String = conn
-        .query_row(
-            "SELECT payload_json FROM project_templates WHERE id = ?1",
-            params![template_id],
-            |r| r.get(0),
-        )
-        .map_err(|_| "Šablona nenalezena.".to_string())?;
-    let tpl: Value = serde_json::from_str(&payload).map_err(|e| e.to_string())?;
-
-    let id = new_id();
-    let ts = now();
-    let ptype = tpl.get("type").and_then(|v| v.as_str());
-    let tags = tpl.get("tags").and_then(|v| v.as_str());
-    let note = tpl.get("note").and_then(|v| v.as_str()).unwrap_or("");
-    conn.execute(
-        "INSERT INTO projects (id, name, client, type, tags, status, priority, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'active', 'normal', ?6, ?6)",
-        params![id, name, client, ptype, tags, ts],
-    )
-    .map_err(|e| e.to_string())?;
-    log_event(conn, &id, "created", &format!("Projekt ze šablony: {name}"));
-    reindex(conn, "project", &id, &id, &name, client.as_deref().unwrap_or(""));
-
-    // Ukoly
-    if let Some(tasks) = tpl.get("tasks").and_then(|v| v.as_array()) {
-        for t in tasks {
-            if let Some(title) = t.as_str() {
-                conn.execute(
-                    "INSERT INTO project_tasks (id, project_id, title, status, priority, created_at)
-                     VALUES (?1, ?2, ?3, 'new', 'normal', ?4)",
-                    params![new_id(), id, title, now()],
-                )
-                .map_err(|e| e.to_string())?;
-            }
-        }
-    }
-    // Odkazy
-    if let Some(links) = tpl.get("links").and_then(|v| v.as_array()) {
-        for l in links {
-            let title = l.get("title").and_then(|v| v.as_str()).unwrap_or("Odkaz");
-            let url = l.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            let ltype = l.get("type").and_then(|v| v.as_str());
-            conn.execute(
-                "INSERT INTO project_links (id, project_id, title, url, type, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![new_id(), id, title, url, ltype, now()],
-            )
-            .map_err(|e| e.to_string())?;
-        }
-    }
-    // Uvodni poznamka
-    if !note.is_empty() {
-        conn.execute(
-            "INSERT INTO project_notes (id, project_id, title, body_md, created_at, updated_at)
-             VALUES (?1, ?2, 'Postup', ?3, ?4, ?4)",
-            params![new_id(), id, note, now()],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    Ok(id)
-}
-
-// ----------------------------- Monitoring webu ---------------------------
-
-#[tauri::command]
-fn list_monitors(project_id: String, state: State<AppState>) -> Result<Vec<Value>, String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    query_json(
-        conn,
-        "SELECT * FROM project_monitors WHERE project_id = ?1 ORDER BY label",
-        params![project_id],
-    )
-}
-
-#[tauri::command]
-fn save_monitor(
-    id: Option<String>,
-    project_id: String,
-    label: String,
-    url: String,
-    state: State<AppState>,
-) -> Result<String, String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    match id {
-        Some(existing) => {
-            conn.execute(
-                "UPDATE project_monitors SET label = ?1, url = ?2 WHERE id = ?3",
-                params![label, url, existing],
-            )
-            .map_err(|e| e.to_string())?;
-            Ok(existing)
-        }
-        None => {
-            let mid = new_id();
-            conn.execute(
-                "INSERT INTO project_monitors (id, project_id, label, url, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![mid, project_id, label, url, now()],
-            )
-            .map_err(|e| e.to_string())?;
-            Ok(mid)
-        }
-    }
-}
-
-#[tauri::command]
-fn delete_monitor(id: String, state: State<AppState>) -> Result<(), String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    conn.execute("DELETE FROM project_monitors WHERE id = ?1", params![id])
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-/// Provede kontrolu jednoho monitoru (dostupnost + latence + SSL expirace)
-/// a vysledek ulozi do DB. Vraci aktualizovany radek.
-#[tauri::command]
-fn check_monitor(id: String, state: State<AppState>) -> Result<Value, String> {
-    // URL si vytahnu pod zamkem, sit kontroluju bez drzeni zamku.
-    let url: String = {
-        let g = state.inner.lock().unwrap();
-        let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-        conn.query_row(
-            "SELECT url FROM project_monitors WHERE id = ?1",
-            params![id],
-            |r| r.get(0),
-        )
-        .map_err(|_| "Monitor nenalezen.".to_string())?
-    };
-
-    let result = monitor::check(&url);
-    let checked_at = now();
-
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    conn.execute(
-        "UPDATE project_monitors
-         SET last_status = ?1, last_ok = ?2, last_latency_ms = ?3,
-             last_error = ?4, ssl_expires_at = ?5, last_checked_at = ?6
-         WHERE id = ?7",
-        params![
-            result.status,
-            result.ok as i64,
-            result.latency_ms,
-            result.error,
-            result.ssl_expires_at,
-            checked_at,
-            id
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-    let mut rows = query_json(conn, "SELECT * FROM project_monitors WHERE id = ?1", params![id])?;
-    rows.pop().ok_or_else(|| "Monitor nenalezen.".into())
-}
-
-// ----------------------------- Cloud sync (Supabase) ---------------------
-// E2E sifrovany snapshot celeho trezoru. Server vidi jen ciphertext.
-
-fn cfg_get(conn: &Connection, key: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT value FROM app_config WHERE key = ?1",
-        params![key],
-        |r| r.get::<_, String>(0),
-    )
-    .ok()
-}
-
-fn cfg_set(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO app_config (key, value) VALUES (?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![key, value],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn load_cloud_config(conn: &Connection) -> Option<cloud::CloudConfig> {
-    Some(cloud::CloudConfig {
-        url: cfg_get(conn, "cloud_url")?,
-        anon_key: cfg_get(conn, "cloud_anon")?,
-        email: cfg_get(conn, "cloud_email")?,
-        password: cfg_get(conn, "cloud_password")?,
-        bucket: cfg_get(conn, "cloud_bucket").unwrap_or_else(|| "vaults".into()),
-    })
-}
-
-/// Stav cloud syncu pro UI (bez hesel).
-#[tauri::command]
-fn cloud_status(state: State<AppState>) -> Result<Value, String> {
-    let g = state.inner.lock().unwrap();
-    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    Ok(serde_json::json!({
-        "configured": cfg_get(conn, "cloud_url").is_some(),
-        "url": cfg_get(conn, "cloud_url"),
-        "email": cfg_get(conn, "cloud_email"),
-        "bucket": cfg_get(conn, "cloud_bucket").unwrap_or_else(|| "vaults".into()),
-        "last_synced": cfg_get(conn, "cloud_last_synced"),
->>>>>>> Stashed changes
     }))
 }
 
 #[tauri::command]
-<<<<<<< Updated upstream
 fn sync_mark_seen(rel: String, event_id: i64, state: State<AppState>) -> Result<(), String> {
     let g = state.inner.lock().unwrap();
     let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
@@ -2042,89 +1790,229 @@ fn set_ai_config(config: Value, state: State<AppState>) -> Result<(), String> {
     let g = state.inner.lock().unwrap();
     let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
     set_setting_kv(conn, "ai_config", &config.to_string())
-=======
-fn cloud_set_config(
-    url: String,
-    anon_key: String,
-    email: String,
-    password: String,
-    bucket: Option<String>,
-    state: State<AppState>,
-) -> Result<(), String> {
+}
+
+// ----------------------------- Monitoring webu ---------------------------
+
+#[tauri::command]
+fn list_monitors(project_id: String, state: State<AppState>) -> Result<Vec<Value>, String> {
     let g = state.inner.lock().unwrap();
     let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-    cfg_set(conn, "cloud_url", url.trim())?;
-    cfg_set(conn, "cloud_anon", anon_key.trim())?;
-    cfg_set(conn, "cloud_email", email.trim())?;
-    cfg_set(conn, "cloud_password", &password)?;
-    cfg_set(conn, "cloud_bucket", bucket.as_deref().unwrap_or("vaults").trim())?;
+    query_json(
+        conn,
+        "SELECT * FROM project_monitors WHERE project_id = ?1 ORDER BY label",
+        params![project_id],
+    )
+}
+
+#[tauri::command]
+fn save_monitor(
+    id: Option<String>,
+    project_id: String,
+    label: String,
+    url: String,
+    state: State<AppState>,
+) -> Result<String, String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    match id {
+        Some(existing) => {
+            conn.execute(
+                "UPDATE project_monitors SET label = ?1, url = ?2 WHERE id = ?3",
+                params![label, url, existing],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(existing)
+        }
+        None => {
+            let mid = new_id();
+            conn.execute(
+                "INSERT INTO project_monitors (id, project_id, label, url, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![mid, project_id, label, url, now()],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(mid)
+        }
+    }
+}
+
+#[tauri::command]
+fn delete_monitor(id: String, state: State<AppState>) -> Result<(), String> {
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    conn.execute("DELETE FROM project_monitors WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// Overi pripojeni k Supabase (prihlaseni) bez nahravani dat.
+/// Provede kontrolu monitoru (dostupnost + latence + SSL) a ulozi vysledek.
 #[tauri::command]
-fn cloud_test(state: State<AppState>) -> Result<String, String> {
-    let cfg = {
+fn check_monitor(id: String, state: State<AppState>) -> Result<Value, String> {
+    let url: String = {
         let g = state.inner.lock().unwrap();
         let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-        load_cloud_config(conn).ok_or("Cloud není nastaven.")?
+        conn.query_row(
+            "SELECT url FROM project_monitors WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .map_err(|_| "Monitor nenalezen.".to_string())?
     };
-    let sess = cloud::auth(&cfg)?;
-    Ok(format!("Připojeno (user {})", &sess.user_id))
+    let result = monitor::check(&url);
+    let checked_at = now();
+    let g = state.inner.lock().unwrap();
+    let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
+    conn.execute(
+        "UPDATE project_monitors
+         SET last_status = ?1, last_ok = ?2, last_latency_ms = ?3,
+             last_error = ?4, ssl_expires_at = ?5, last_checked_at = ?6
+         WHERE id = ?7",
+        params![
+            result.status,
+            result.ok as i64,
+            result.latency_ms,
+            result.error,
+            result.ssl_expires_at,
+            checked_at,
+            id
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+    let mut rows = query_json(conn, "SELECT * FROM project_monitors WHERE id = ?1", params![id])?;
+    rows.pop().ok_or_else(|| "Monitor nenalezen.".into())
 }
 
-/// Nahraje aktualni stav trezoru do cloudu (E2E sifrovane).
+// ----------------------------- Cloud účet (Supabase) ---------------------
+// Hostováno majitelem appky. Uživatel se registruje/přihlašuje emailem+heslem.
+// Z hesla se lokálně odvodí klíče (viz crypto::derive_account) — Supabase nikdy
+// nevidí skutečné heslo ani šifrovací klíč. Trezor se synchronizuje E2E šifrovaný.
+
+fn device_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "tento počítač".into())
+}
+
+/// Stav cloudu pro frontend.
+#[tauri::command]
+fn cloud_status(state: State<AppState>) -> Result<Value, String> {
+    let g = state.inner.lock().unwrap();
+    let email = g.session.as_ref().map(|s| s.email.clone());
+    let last_synced = g
+        .conn
+        .as_ref()
+        .and_then(|c| get_setting_kv(c, "cloud_last_synced"));
+    Ok(serde_json::json!({
+        "configured": cloud_config::is_configured(),
+        "signed_in": g.session.is_some(),
+        "email": email,
+        "last_synced": last_synced,
+    }))
+}
+
+/// Registrace nového účtu + založení trezoru + první nahrání do cloudu.
+#[tauri::command]
+fn cloud_register(email: String, password: String, state: State<AppState>) -> Result<(), String> {
+    if !cloud_config::is_configured() {
+        return Err("Cloud není nakonfigurovaný (chybí Supabase údaje v cloud_config.rs).".into());
+    }
+    if password.len() < 8 {
+        return Err("Heslo musí mít alespoň 8 znaků.".into());
+    }
+    let email = email.trim().to_lowercase();
+    let keys = crypto::derive_account(&email, &password)?;
+    let sess = cloud::sign_up(&email, &keys.auth_password)?;
+
+    let vault_dir = { state.inner.lock().unwrap().vault_dir.clone() };
+    fs::create_dir_all(&vault_dir).map_err(|e| e.to_string())?;
+    let db_path = vault_dir.join("vault.db");
+    let conn = open_keyed(&db_path, &keys.sqlcipher_key_hex)?;
+    db::apply_schema(&conn).map_err(|e| e.to_string())?;
+
+    {
+        let mut g = state.inner.lock().unwrap();
+        g.conn = Some(conn);
+        g.session = Some(sess);
+        g.enc_key = Some(keys.enc_key);
+        g.sqlcipher_key = Some(keys.sqlcipher_key_hex);
+    }
+    // První snapshot do cloudu (best-effort — když selže, účet i tak existuje).
+    let _ = cloud_push(state);
+    Ok(())
+}
+
+/// Přihlášení existujícího účtu. Na novém zařízení stáhne trezor z cloudu.
+#[tauri::command]
+fn cloud_login(email: String, password: String, state: State<AppState>) -> Result<(), String> {
+    if !cloud_config::is_configured() {
+        return Err("Cloud není nakonfigurovaný (chybí Supabase údaje v cloud_config.rs).".into());
+    }
+    let email = email.trim().to_lowercase();
+    let keys = crypto::derive_account(&email, &password)?;
+    let sess = cloud::sign_in(&email, &keys.auth_password)?;
+
+    let vault_dir = { state.inner.lock().unwrap().vault_dir.clone() };
+    fs::create_dir_all(&vault_dir).map_err(|e| e.to_string())?;
+    let db_path = vault_dir.join("vault.db");
+
+    // Nové zařízení (lokálně žádný trezor) -> stáhni z cloudu.
+    if !db_path.exists() {
+        let pulled = cloud::pull(&sess, &keys.enc_key, &vault_dir)?;
+        if !pulled {
+            return Err("Účet zatím nemá v cloudu žádná data.".into());
+        }
+    }
+    let conn = open_keyed(&db_path, &keys.sqlcipher_key_hex)?;
+    db::apply_schema(&conn).map_err(|e| e.to_string())?;
+    if let Some(v) = get_setting_kv(&conn, "sites_root") {
+        if !v.is_empty() {
+            *state.sites_root.lock().unwrap() = PathBuf::from(v);
+        }
+    }
+    {
+        let mut g = state.inner.lock().unwrap();
+        g.conn = Some(conn);
+        g.session = Some(sess);
+        g.enc_key = Some(keys.enc_key);
+        g.sqlcipher_key = Some(keys.sqlcipher_key_hex);
+    }
+    Ok(())
+}
+
+/// Nahraje aktuální stav trezoru do cloudu (E2E šifrovaně).
 #[tauri::command]
 fn cloud_push(state: State<AppState>) -> Result<Value, String> {
-    // Konzistentni kopie DB + sync_salt + heslo si pripravim pod zamkem.
-    let (cfg, vault_dir, password, sync_salt, db_snapshot) = {
+    let (sess, enc_key, vault_dir, db_snapshot) = {
         let g = state.inner.lock().unwrap();
-        let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-        let cfg = load_cloud_config(conn).ok_or("Cloud není nastaven.")?;
-        let password = g.password.clone().ok_or("Trezor musí být odemčený.")?;
-        // sync_salt vytvorim pri prvnim pushi a ulozim do configu.
-        let sync_salt = match cfg_get(conn, "cloud_sync_salt") {
-            Some(s) => s,
-            None => {
-                let s = hex::encode(crypto::generate_salt());
-                cfg_set(conn, "cloud_sync_salt", &s)?;
-                s
-            }
-        };
-        // Konzistentni snapshot DB pres VACUUM INTO.
+        let conn = g.conn.as_ref().ok_or("Nejsi přihlášený.")?;
+        let sess = g.session.clone().ok_or("Nejsi přihlášený do cloudu.")?;
+        let enc_key = g.enc_key.ok_or("Chybí šifrovací klíč.")?;
         let snap = std::env::temp_dir().join(format!("hangar_snapshot_{}.db", new_id()));
-        if snap.exists() {
-            let _ = fs::remove_file(&snap);
-        }
+        let _ = fs::remove_file(&snap);
         conn.execute("VACUUM INTO ?1", params![snap.to_string_lossy()])
             .map_err(|e| format!("snapshot DB: {e}"))?;
-        (cfg, g.vault_dir.clone(), password, sync_salt, snap)
+        (sess, enc_key, g.vault_dir.clone(), snap)
     };
-
-    let device = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_else(|_| "tento počítač".into());
     let ts = now();
-    let res = cloud::push(&cfg, &vault_dir, &db_snapshot, &password, &sync_salt, &device, &ts);
+    let res = cloud::push(&sess, &enc_key, &vault_dir, &db_snapshot, &device_name(), &ts);
     let _ = fs::remove_file(&db_snapshot);
     let res = res?;
-
     let g = state.inner.lock().unwrap();
     if let Some(conn) = g.conn.as_ref() {
-        cfg_set(conn, "cloud_last_synced", &ts)?;
+        set_setting_kv(conn, "cloud_last_synced", &ts)?;
     }
     Ok(serde_json::json!({ "size": res.size, "updated_at": res.updated_at }))
 }
 
-/// Stav cloudu (metadata posledniho snapshotu) bez stahovani celku.
+/// Stav snapshotu v cloudu.
 #[tauri::command]
 fn cloud_remote_info(state: State<AppState>) -> Result<Value, String> {
-    let cfg = {
+    let sess = {
         let g = state.inner.lock().unwrap();
-        let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-        load_cloud_config(conn).ok_or("Cloud není nastaven.")?
+        g.session.clone().ok_or("Nejsi přihlášený do cloudu.")?
     };
-    match cloud::fetch_meta(&cfg)? {
+    match cloud::fetch_meta(&sess)? {
         Some(m) => Ok(serde_json::json!({
             "exists": true, "updated_at": m.updated_at, "device": m.device, "size": m.size
         })),
@@ -2132,34 +2020,181 @@ fn cloud_remote_info(state: State<AppState>) -> Result<Value, String> {
     }
 }
 
-/// Stahne snapshot z cloudu a prepise lokalni trezor. Po dokonceni vault
-/// uzamkne — uzivatel se musi znovu odemknout (kvuli nove soli).
+/// Stáhne snapshot z cloudu a přepíše lokální trezor (znovu otevře s týmž klíčem).
 #[tauri::command]
 fn cloud_pull(state: State<AppState>) -> Result<(), String> {
-    let (cfg, vault_dir, password) = {
+    let (sess, enc_key, sqlcipher, vault_dir) = {
+        let g = state.inner.lock().unwrap();
+        let sess = g.session.clone().ok_or("Nejsi přihlášený do cloudu.")?;
+        let enc_key = g.enc_key.ok_or("Chybí šifrovací klíč.")?;
+        let sqlcipher = g.sqlcipher_key.clone().ok_or("Chybí klíč trezoru.")?;
+        (sess, enc_key, sqlcipher, g.vault_dir.clone())
+    };
+    {
+        let mut g = state.inner.lock().unwrap();
+        g.conn = None; // zavři DB, aby šel soubor přepsat
+    }
+    let pulled = cloud::pull(&sess, &enc_key, &vault_dir)?;
+    if !pulled {
+        return Err("V cloudu zatím není žádný snapshot.".into());
+    }
+    let conn = open_keyed(&vault_dir.join("vault.db"), &sqlcipher)?;
+    db::apply_schema(&conn).map_err(|e| e.to_string())?;
+    state.inner.lock().unwrap().conn = Some(conn);
+    Ok(())
+}
+
+/// Odhlášení — zavře trezor a zapomene klíče.
+#[tauri::command]
+fn cloud_logout(state: State<AppState>) {
+    let mut g = state.inner.lock().unwrap();
+    g.conn = None;
+    g.session = None;
+    g.enc_key = None;
+    g.sqlcipher_key = None;
+    g.password = None;
+}
+
+// ----------------------------- Website Import & Redesign -----------------
+
+/// Zanalyzuje zdroj (URL nebo lokalni slozka) a vrati analyzu. Nesahá na DB.
+#[tauri::command]
+fn redesign_analyze(source: String, source_type: String) -> Result<Value, String> {
+    let now = now();
+    let analysis = match source_type.as_str() {
+        "folder" => redesign::analyze_folder(&source, &now)?,
+        _ => redesign::analyze_url(&source, &now)?,
+    };
+    serde_json::to_value(&analysis).map_err(|e| e.to_string())
+}
+
+/// Vytvori novy projekt redesignu. `target_dir` = volitelna cilova slozka
+/// (vychozi = korenova slozka webu / sites root).
+#[tauri::command]
+fn redesign_create(
+    analysis: Value,
+    opts: Value,
+    target_dir: Option<String>,
+    state: State<AppState>,
+) -> Result<Value, String> {
+    let a: redesign::Analysis = serde_json::from_value(analysis).map_err(|e| format!("analysis: {e}"))?;
+    let o: redesign::CreateOpts = serde_json::from_value(opts).map_err(|e| format!("opts: {e}"))?;
+    // Vychozi cil = podslozka `sites/` (aby se web objevil ve Webech s live preview).
+    let (parent, in_sites) = match target_dir.filter(|s| !s.trim().is_empty()) {
+        Some(d) => (PathBuf::from(d), false),
+        None => (state.sites_root.lock().unwrap().join("sites"), true),
+    };
+    fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
+    let res = redesign::create_project(&a, &o, &parent)?;
+    let mut out = serde_json::to_value(&res).map_err(|e| e.to_string())?;
+    // Pokud web vznikl v sites/, vrat i `rel` pro otevreni ve Webech.
+    if in_sites {
+        let eff_slug = if o.slug.trim().is_empty() { "redesign" } else { o.slug.trim() };
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert("site_rel".into(), Value::from(format!("sites/{eff_slug}")));
+        }
+    }
+    Ok(out)
+}
+
+/// Otevre vytvoreny projekt v externim nastroji (Claude Code / VS Code / Finder).
+/// `app` = nazev/cesta aplikace; pokud None, jen odhali slozku v OS.
+#[tauri::command]
+fn redesign_open(project_dir: String, app: Option<String>) -> Result<(), String> {
+    let dir = PathBuf::from(&project_dir);
+    if !dir.is_dir() {
+        return Err("Projekt neexistuje.".into());
+    }
+    match app.filter(|s| !s.trim().is_empty()) {
+        Some(app) => {
+            // macOS: `open -a <App> <dir>`; jinde zkusime spustit `<app> <dir>`.
+            #[cfg(target_os = "macos")]
+            let result = std::process::Command::new("open").arg("-a").arg(&app).arg(&dir).spawn();
+            #[cfg(not(target_os = "macos"))]
+            let result = std::process::Command::new(&app).arg(&dir).spawn();
+            result.map(|_| ()).map_err(|e| format!("Nelze otevřít v „{app}“: {e}"))
+        }
+        None => tauri_plugin_opener::open_path(dir.to_string_lossy().to_string(), None::<&str>)
+            .map_err(|e| e.to_string()),
+    }
+}
+
+/// Otevre projekt v Claude Code s uz vlozenym promptem z PROMPT_PRO_CLAUDE.md.
+/// macOS: vytvori spustitelny `.command` skript a otevre ho (Terminal ho spusti
+/// sam) — NEpotrebuje zadne "Automation" povoleni, na rozdil od osascript.
+#[tauri::command]
+fn redesign_open_claude(project_dir: String) -> Result<(), String> {
+    let dir = PathBuf::from(&project_dir);
+    if !dir.join("PROMPT_PRO_CLAUDE.md").exists() {
+        return Err("Projekt nemá PROMPT_PRO_CLAUDE.md.".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let quoted_dir = format!("'{}'", project_dir.replace('\'', "'\\''"));
+        let script = format!(
+            "#!/bin/bash\n\
+             cd {quoted_dir} || exit 1\n\
+             clear\n\
+             if ! command -v claude >/dev/null 2>&1; then\n\
+             \x20 echo \"Claude Code CLI ('claude') není v PATH.\"\n\
+             \x20 echo \"Nainstaluj ho (npm i -g @anthropic-ai/claude-code), nebo otevři projekt v editoru.\"\n\
+             \x20 echo \"Prompt je v souboru PROMPT_PRO_CLAUDE.md\"\n\
+             \x20 exec \"$SHELL\"\n\
+             fi\n\
+             echo \"Spouštím Claude Code s vloženým promptem…\"\n\
+             claude \"$(cat PROMPT_PRO_CLAUDE.md)\"\n"
+        );
+        let script_path = dir.join(".launch-claude.command");
+        std::fs::write(&script_path, script).map_err(|e| format!("zápis skriptu: {e}"))?;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
+        tauri_plugin_opener::open_path(script_path.to_string_lossy().to_string(), None::<&str>)
+            .map_err(|e| format!("Nelze otevřít Terminal: {e}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::process::Command::new("claude")
+            .arg(&dir)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("Claude Code nedostupný: {e}"))
+    }
+}
+
+/// Vytvori GitHub repozitar pro projekt a nahraje prvni commit. Vraci URL repa.
+#[tauri::command]
+fn redesign_github(project_dir: String, name: String, state: State<AppState>) -> Result<String, String> {
+    let token = {
         let g = state.inner.lock().unwrap();
         let conn = g.conn.as_ref().ok_or("Vault je zamceny.")?;
-        let cfg = load_cloud_config(conn).ok_or("Cloud není nastaven.")?;
-        let password = g.password.clone().ok_or("Trezor musí být odemčený.")?;
-        (cfg, g.vault_dir.clone(), password)
+        get_setting_kv(conn, "github_token").unwrap_or_default()
     };
-
-    // Stahnu a desifruju do pameti predtim, nez sahnu na lokalni soubory.
-    let ok = {
-        // Behem stahovani drzime zamek aplikace zavreny? Ne — sit bez zamku.
-        // Nejdriv ale musime zavrit DB spojeni, aby slo vault.db prepsat.
-        let mut g = state.inner.lock().unwrap();
-        g.conn = None;
-        g.password = None;
-        drop(g);
-        cloud::pull(&cfg, &vault_dir, &password)
-    };
-    match ok {
-        Ok(true) => Ok(()),
-        Ok(false) => Err("V cloudu zatím není žádný snapshot.".into()),
-        Err(e) => Err(e),
+    if token.is_empty() {
+        return Err("GitHub token není nastaven (Nastavení → GitHub).".into());
     }
->>>>>>> Stashed changes
+    let dir = PathBuf::from(&project_dir);
+    if !dir.is_dir() {
+        return Err("Projekt neexistuje.".into());
+    }
+    let repo_name = name.trim().replace(' ', "-");
+    // Vytvoreni repozitare pres GitHub API.
+    let resp = ureq::post("https://api.github.com/user/repos")
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("User-Agent", "ProjectHangar")
+        .set("Accept", "application/vnd.github+json")
+        .send_json(serde_json::json!({ "name": repo_name, "private": true, "auto_init": false }))
+        .map_err(|e| match e {
+            ureq::Error::Status(422, _) => "Repozitář s tímto názvem už existuje.".to_string(),
+            ureq::Error::Status(c, r) => format!("GitHub API {c}: {}", r.into_string().unwrap_or_default().chars().take(160).collect::<String>()),
+            ureq::Error::Transport(t) => format!("GitHub nedostupný: {t}"),
+        })?;
+    let body: Value = resp.into_json().map_err(|e| e.to_string())?;
+    let full = body.get("full_name").and_then(|v| v.as_str()).ok_or("GitHub: chybí full_name")?;
+    let html_url = body.get("html_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let (owner, repo) = full.split_once('/').ok_or("GitHub: neplatné full_name")?;
+    git::init_push(&dir, owner, repo, "main", &token, "Initial redesign (Project Hangar)")?;
+    Ok(html_url)
 }
 
 // ----------------------------- Bootstrap ---------------------------------
@@ -2185,6 +2220,9 @@ pub fn run() {
                     conn: None,
                     vault_dir: dir,
                     password: None,
+                    session: None,
+                    enc_key: None,
+                    sqlcipher_key: None,
                 }),
                 sites_root,
                 preview_port,
@@ -2224,11 +2262,9 @@ pub fn run() {
             import_file,
             open_file,
             delete_file,
-            open_external_url,
             list_events,
             search,
             dashboard,
-<<<<<<< Updated upstream
             get_sites_root,
             set_sites_root,
             list_sites,
@@ -2276,25 +2312,31 @@ pub fn run() {
             set_sync_config,
             sync_check_latest,
             sync_mark_seen,
-=======
-            export_site,
             list_file_versions,
             restore_file_version,
-            list_templates,
-            save_template,
-            delete_template,
-            create_project_from_template,
             list_monitors,
             save_monitor,
             delete_monitor,
             check_monitor,
             cloud_status,
-            cloud_set_config,
-            cloud_test,
+            cloud_register,
+            cloud_login,
+            cloud_logout,
             cloud_push,
             cloud_remote_info,
             cloud_pull,
->>>>>>> Stashed changes
+            redesign_analyze,
+            redesign_create,
+            redesign_open,
+            redesign_open_claude,
+            redesign_github,
+            restore_project,
+            purge_project,
+            project_for_site,
+            site_for_project,
+            site_trash,
+            site_restore,
+            site_purge,
         ])
         .run(tauri::generate_context!())
         .expect("chyba pri spousteni Tauri aplikace");
