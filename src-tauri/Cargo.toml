@@ -1,8 +1,8 @@
 [package]
 name = "project-hangar"
 version = "0.1.0"
-description = "Project Hangar - lokalni spravce projektu"
-authors = ["you"]
+description = "Project Hangar - lokalni sifrovany spravce projektu"
+authors = ["Helion CZ"]
 edition = "2021"
 
 [lib]
@@ -27,12 +27,25 @@ hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock"] }
 thiserror = "1"
+<<<<<<< Updated upstream
 # Lokalni HTTP server pro live preview webu + ZIP export slozky
 tiny_http = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 walkdir = "2"
 # HTTP klient pro proxy na AI API (obchazi CORS webview, klic zustava v backendu)
 ureq = { version = "2", features = ["json"] }
+=======
+# Export webu pro zakaznika: ZIP balicek + rekurzivni prochazeni slozky
+zip = { version = "2", default-features = false, features = ["deflate"] }
+walkdir = "2"
+# Monitoring webu: HTTPS dostupnost + cteni expirace SSL certifikatu (cisty Rust)
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "0.26"
+x509-parser = "0.16"
+# Cloud sync (Supabase): HTTP klient + E2E sifrovani snapshotu trezoru
+ureq = { version = "2", features = ["json"] }
+aes-gcm = "0.10"
+>>>>>>> Stashed changes
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]

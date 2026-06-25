@@ -1,7 +1,8 @@
 {
   "name": "project-hangar",
   "version": "0.1.0",
-  "description": "Project Hangar - lokální správce projektů (MVP)",
+  "description": "Project Hangar - lokální šifrovaný správce projektů",
+  "author": "Helion CZ",
   "type": "module",
   "scripts": {
     "dev": "vite",

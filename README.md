@@ -1,17 +1,19 @@
 # Project Hangar
 
 Lokální desktopová aplikace pro správu projektů (web, e-shop, zakázky…).
-Tauri 2 + React/TypeScript + šifrovaná SQLite (SQLCipher). **MVP** — bez AI, bez sync, bez monitoringu.
+Tauri 2 + React/TypeScript + šifrovaná SQLite (SQLCipher). **Lokální MVP** — bez AI, cloudu a týmové synchronizace.
 
 ## Co umí (MVP)
 
 - **Master heslo** → Argon2id → šifrovaný trezor (SQLCipher, AES-256). Bez hesla data nepřečteš.
 - **Projekty** — CRUD, stav, priorita, typ, štítky, klient, oblíbené.
 - **Soubory** — import (drag&drop přes dialog), uložení v content-addressable storage (SHA-256), otevření v OS.
+- **Verzování souborů** — při opakovaném importu stejného názvu se původní blob uloží jako starší verze.
 - **Poznámky** — markdown.
 - **Odkazy** — web/admin/git/hosting…, otevření jedním klikem.
 - **Přístupy** — login + heslo v šifrované DB, heslo skryté dokud ho nevyžádáš, kopírování s auto-clear schránky.
 - **Úkoly** — stavy, termíny.
+- **Export webu pro zákazníka** — ZIP bez vývojářského balastu (`node_modules`, `.git`, `.env`), plus `HANDOFF.md`.
 - **Historie** — automatický log událostí v projektu.
 - **Fulltext vyhledávání** (SQLite FTS5, bez diakritiky) přes projekty, poznámky, soubory.
 - **Dashboard** — počty, naposledy otevřené, úkoly po termínu.
@@ -111,7 +113,7 @@ src-tauri/
   tauri.conf.json         konfigurace okna a bundlu
 ```
 
-## Co schválně NENÍ v MVP
+## Co schválně NENÍ v lokálním MVP
 
-AI asistent, cloud/sync, týmová spolupráce, monitoring webů/expirací, verzování souborů,
-šablony projektů, OCR, biometrika, systémový keychain. Připraveno v datovém modelu, dodělá se ve fázi 2/3.
+AI asistent, cloud/sync, týmová spolupráce, OCR, biometrika a systémový keychain.
+Část podpory pro šablony, monitoring a verzování už je v backendu/datovém modelu, UI se bude dál zpřesňovat ve fázi 2.

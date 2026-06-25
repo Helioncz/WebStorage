@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI web builder desktop aplikace | GitHub, live preview a AI agent</title>
+  <meta name="description" content="Desktopová aplikace pro rychlou tvorbu webových projektů. Založení projektu, GitHub repozitář, live preview a AI agent v jednom pracovním prostředí." />
+  <meta name="keywords" content="AI web builder, desktop aplikace pro tvorbu webů, GitHub integrace, live preview editor, AI agent pro vývoj webu, tvorba webu s AI, webový projekt jedním kliknutím" />
+  <meta name="author" content="Helion" />
+  <meta name="theme-color" content="#0a0e16" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Project Hangar — z nápadu na hotový web během pár minut" />
+  <meta property="og:description" content="Desktopová aplikace, která ti založí projekt, vytvoří soubory, napojí GitHub a umožní upravovat web s AI agentem. Vše v jednom okně." />
+  <meta property="og:locale" content="cs_CZ" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="glow glow-1" aria-hidden="true"></div>
+  <div class="glow glow-2" aria-hidden="true"></div>
+
+  <!-- ===== BOOT INTRO (jen při reloadu z vrchu) ===== -->
+  <div class="boot" id="boot" aria-hidden="true">
+    <div class="boot-inner">
+      <svg class="boot-logo" viewBox="0 0 32 32" width="64" height="64">
+        <rect width="32" height="32" rx="8" fill="#4f8cff" />
+        <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+      </svg>
+      <pre class="boot-log" id="bootLog"></pre>
+      <div class="boot-progress"><span id="bootBar"></span></div>
+    </div>
+  </div>
+
+  <!-- ===== STICKY NAV ===== -->
+  <header class="nav" id="nav">
+    <a href="#top" class="brand">
+      <svg class="logo" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+        <rect width="32" height="32" rx="7" fill="#4f8cff" />
+        <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+      </svg>
+      <span class="brand-name">Project Hangar</span>
+    </a>
+    <nav class="nav-links" aria-label="Hlavní navigace">
+      <a href="#jak-to-funguje">Jak to funguje</a>
+      <a href="#demo">Demo</a>
+      <a href="#funkce">Funkce</a>
+      <a href="#bezpecnost">Bezpečnost</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a href="#download" class="btn btn-primary btn-sm nav-download">Stáhnout</a>
+    <button class="nav-burger" id="navBurger" aria-label="Otevřít menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+
+  <main>
+    <!-- ===== HERO ===== -->
+    <section class="hero" id="top">
+      <div class="hero-left">
+        <span class="eyebrow">◆ Desktopová aplikace · v1.0.0</span>
+        <h1>Tvoř weby rychleji.<br />S GitHubem, live preview<br />a <span class="grad">AI agentem</span> v jednom okně.</h1>
+        <p class="lead">
+          Desktopová aplikace, která ti založí projekt, vytvoří základní soubory,
+          napojí GitHub repozitář a umožní upravovat web s AI asistentem —
+          bez zbytečného přepínání mezi nástroji.
+        </p>
+        <div class="hero-cta">
+          <a href="#download" class="btn btn-primary">Stáhnout aplikaci</a>
+          <a href="#demo" class="btn btn-ghost">Zobrazit demo →</a>
+        </div>
+        <p class="hero-note">Instalace lokálně · zdarma během beta · Windows dostupný, macOS &amp; Linux připravujeme</p>
+      </div>
+
+      <!-- Interaktivní mockup -->
+      <div class="hero-right">
+        <div class="app-window" id="appWindow">
+          <div class="app-titlebar">
+            <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+            <svg class="logo tb-logo" viewBox="0 0 32 32" width="15" height="15" aria-hidden="true">
+              <rect width="32" height="32" rx="7" fill="#4f8cff" />
+              <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+            </svg>
+            <span class="app-title">Project Hangar — workspace</span>
+          </div>
+          <div class="app-body">
+            <!-- panel: soubory -->
+            <aside class="app-files">
+              <div class="app-files-head">PROJEKT</div>
+              <div class="proj-name" id="projName">&nbsp;</div>
+              <ul class="file-tree" id="fileTree"></ul>
+              <button class="repo-btn" id="repoBtn">＋ Create GitHub repo</button>
+              <div class="repo-ok" id="repoOk">✓ Repo vytvořeno · pushed</div>
+            </aside>
+            <!-- panel: preview -->
+            <section class="app-preview">
+              <div class="preview-bar"><span class="dot-mini"></span> live preview</div>
+              <div class="preview-canvas" id="previewCanvas">
+                <div class="pv-hero">
+                  <div class="pv-h1" id="pvH1">Vítejte</div>
+                  <div class="pv-sub" id="pvSub">Váš nový web</div>
+                  <div class="pv-btn">Začít</div>
+                </div>
+              </div>
+              <!-- AI agent -->
+              <div class="ai-panel" id="aiPanel">
+                <div class="ai-head"><span class="ai-dot"></span> AI agent</div>
+                <div class="ai-msg" id="aiMsg"></div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <span class="demo-tag">Ukázková simulace workflow</span>
+      </div>
+    </section>
+
+    <!-- ===== DOWNLOAD BOX ===== -->
+    <section class="section section-tight" id="download">
+      <div class="download-box">
+        <div class="dl-main">
+          <div class="dl-head">
+            <svg class="dl-icon" viewBox="0 0 32 32" width="44" height="44" aria-hidden="true">
+              <rect width="32" height="32" rx="8" fill="#4f8cff" />
+              <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+            </svg>
+            <div>
+              <h2>Project Hangar</h2>
+              <span class="dl-meta">verze <strong>v1.0.0</strong> · vydáno 25. 6. 2026 · ~28 MB</span>
+            </div>
+          </div>
+          <a href="#" class="btn btn-primary btn-lg" id="winDownload">⤓ Stáhnout pro Windows</a>
+          <div class="dl-sub-links">
+            <span class="soon">macOS připravujeme</span>
+            <span class="soon">Linux připravujeme</span>
+          </div>
+          <p class="dl-placeholder">Download bude doplněn po vydání první verze — odkaz nyní vede na placeholder.</p>
+        </div>
+        <div class="dl-side">
+          <div class="dl-spec">
+            <span class="spec-k">Systém</span><span class="spec-v">Windows 10/11 (64-bit), WebView2</span>
+          </div>
+          <div class="dl-spec">
+            <span class="spec-k">Instalace</span><span class="spec-v">Lokální · trvá méně než minutu</span>
+          </div>
+          <div class="dl-spec">
+            <span class="spec-k">Data</span><span class="spec-v">Uložená šifrovaně u tebe v počítači</span>
+          </div>
+          <div class="dl-spec-links">
+            <a href="#roadmapa">Zobrazit změny v této verzi</a>
+            <a href="#bezpecnost">Systémové požadavky</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PROBLÉM / ŘEŠENÍ ===== -->
+    <section class="section" id="proc">
+      <div class="section-head">
+        <span class="kicker">Proč to vzniklo</span>
+        <h2>Tvorba webu nemá být skládačka deseti nástrojů.</h2>
+        <p class="section-sub">
+          Tvorba jednoduchého webu často znamená řešit složky, repozitáře, editory,
+          preview, deployment, AI chat a verzování zvlášť. Project Hangar to spojuje
+          do jednoho pracovního prostředí.
+        </p>
+      </div>
+      <div class="cards-4">
+        <div class="card">
+          <span class="card-num">01</span>
+          <h3>Bez ručního zakládání</h3>
+          <p>Projekt i základní HTML/CSS/JS soubory vzniknou automaticky. Žádné kopírování boilerplate.</p>
+        </div>
+        <div class="card">
+          <span class="card-num">02</span>
+          <h3>GitHub jedním kliknutím</h3>
+          <p>Založení repozitáře a nahrání souborů přímo z aplikace. Bez terminálu.</p>
+        </div>
+        <div class="card">
+          <span class="card-num">03</span>
+          <h3>Live preview při úpravách</h3>
+          <p>Změny vidíš okamžitě v náhledu vedle souborů. Žádné přepínání oken.</p>
+        </div>
+        <div class="card">
+          <span class="card-num">04</span>
+          <h3>AI agent vedle kódu</h3>
+          <p>Placený AI chat agent v pravém panelu, který pomáhá web upravovat za pochodu.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== JAK TO FUNGUJE ===== -->
+    <section class="section" id="jak-to-funguje">
+      <div class="section-head">
+        <span class="kicker">Jak to funguje</span>
+        <h2>Od nápadu k webu v šesti krocích.</h2>
+      </div>
+      <ol class="steps">
+        <li class="step"><span class="step-n">1</span><div><h3>Založ projekt</h3><p>Zadej název, aplikace vytvoří složku a soubory.</p></div></li>
+        <li class="step"><span class="step-n">2</span><div><h3>Vyber šablonu</h3><p>Firemní web, portfolio, landing page nebo dokumentace.</p></div></li>
+        <li class="step"><span class="step-n">3</span><div><h3>Připoj GitHub</h3><p>Repozitář a push jedním kliknutím.</p></div></li>
+        <li class="step"><span class="step-n">4</span><div><h3>Upravuj s AI agentem</h3><p>Popíš změnu, agent navrhne úpravu kódu.</p></div></li>
+        <li class="step"><span class="step-n">5</span><div><h3>Sleduj live preview</h3><p>Výsledek vidíš okamžitě vedle editoru.</p></div></li>
+        <li class="step"><span class="step-n">6</span><div><h3>Exportuj / publikuj</h3><p>Exportuj projekt. Přímý deployment připravujeme.</p></div></li>
+      </ol>
+    </section>
+
+    <!-- ===== INTERAKTIVNÍ MINI DEMO ===== -->
+    <section class="section" id="demo">
+      <div class="section-head">
+        <span class="kicker">Vyzkoušej si workflow</span>
+        <h2>Vyber šablonu a vygeneruj projekt.</h2>
+        <p class="section-sub">Šablony jsou stejné jako v aplikaci. Ukázkové demo — simulace výstupu, ne reálná integrace.</p>
+      </div>
+      <div class="demo-wrap">
+        <div class="demo-form">
+          <label class="field">
+            <span>Název projektu</span>
+            <input type="text" id="demoName" placeholder="muj-novy-web" value="muj-novy-web" maxlength="40" />
+          </label>
+          <div class="field">
+            <span>Šablona</span>
+            <div class="seg seg-col" id="demoType" role="group" aria-label="Šablona">
+              <button class="seg-btn active" data-type="web"><strong>Webová prezentace</strong><em>Klasický firemní web na klíč</em></button>
+              <button class="seg-btn" data-type="eshop"><strong>E-shop</strong><em>Internetový obchod</em></button>
+              <button class="seg-btn" data-type="servis"><strong>Servisní zakázka</strong><em>Údržba / úprava webu</em></button>
+            </div>
+          </div>
+          <button class="btn btn-primary" id="demoRun">Vygenerovat ukázku projektu</button>
+        </div>
+
+        <div class="demo-output" id="demoOutput" aria-live="polite">
+          <div class="do-col">
+            <div class="do-label">Struktura souborů</div>
+            <ul class="file-tree static" id="demoFiles"></ul>
+            <div class="do-label">GitHub repo</div>
+            <div class="repo-chip"><span class="gh">⎇</span> <span id="demoRepo">helion/muj-novy-web</span></div>
+            <div class="do-label">README.md</div>
+            <pre class="readme" id="demoReadme"></pre>
+          </div>
+          <div class="do-col do-preview">
+            <div class="do-label">Live preview <span class="lp-dot"></span></div>
+            <div class="browser-mock">
+              <div class="browser-bar">
+                <span class="bdot"></span><span class="bdot"></span><span class="bdot"></span>
+                <span class="url" id="demoUrl">muj-novy-web.cz</span>
+              </div>
+              <div class="site-frame" id="demoPreview"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FUNKCE ===== -->
+    <section class="section" id="funkce">
+      <div class="section-head">
+        <span class="kicker">Funkce aplikace</span>
+        <h2>Co aplikace umí.</h2>
+        <p class="section-sub">Co ještě není hotové, je poctivě označené jako <em>připravujeme</em>.</p>
+      </div>
+      <div class="feature-grid">
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Automatické založení projektu</h3><p>Složka, struktura, metadata.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Připravené HTML/CSS/JS soubory</h3><p>Funkční základ ihned.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>GitHub integrace</h3><p>Repo a push z aplikace.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Live preview</h3><p>Náhled vedle souborů.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>AI chat agent v pravém panelu</h3><p>Vlastní API klíč placeného agenta.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Práce s lokálními soubory</h3><p>Vše leží u tebe v počítači.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Historie změn / verzování <span class="badge">připravujeme</span></h3><p>Log událostí v projektu.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Nastavení API klíčů</h3><p>Bezpečné uložení mimo kód.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Export projektu</h3><p>Stáhni hotové soubory.</p></div></div>
+        <div class="feat"><span class="feat-ico">◇</span><div><h3>Deployment <span class="badge">připravujeme</span></h3><p>Přímá publikace webu.</p></div></div>
+      </div>
+    </section>
+
+    <!-- ===== PRO KOHO ===== -->
+    <section class="section" id="pro-koho">
+      <div class="section-head">
+        <span class="kicker">Pro koho to je</span>
+        <h2>Pro každého, kdo chce tvořit weby bez zbytečného setupu.</h2>
+      </div>
+      <div class="cards-4">
+        <div class="card who"><h3>Malé firmy</h3><p>Rychlý základ webu bez agentury.</p></div>
+        <div class="card who"><h3>Freelanceři</h3><p>Rychlejší příprava projektů.</p></div>
+        <div class="card who"><h3>Vývojáři</h3><p>Méně setupu, více práce.</p></div>
+        <div class="card who"><h3>Agentury</h3><p>Šablony, GitHub a AI v jednom flow.</p></div>
+      </div>
+    </section>
+
+    <!-- ===== BEZPEČNOST ===== -->
+    <section class="section" id="bezpecnost">
+      <div class="section-head">
+        <span class="kicker">Bezpečnost</span>
+        <h2>Bezpečnost není doplněk.</h2>
+        <p class="section-sub">Stahuješ lokální aplikaci, ne podezřelý exe odněkud z internetu. Tady je, jak to bereme.</p>
+      </div>
+      <div class="sec-grid">
+        <div class="sec-item"><span class="sec-ico">🔑</span><div><h3>API klíče mimo kód</h3><p>Klíče se neukládají natvrdo do projektu, ale do zabezpečeného nastavení aplikace.</p></div></div>
+        <div class="sec-item"><span class="sec-ico">⎇</span><div><h3>GitHub tokeny bezpečně</h3><p>Tokeny jsou uložené šifrovaně, ne ve volném textu vedle projektu.</p></div></div>
+        <div class="sec-item"><span class="sec-ico">🗂️</span><div><h3>Lokální soubory</h3><p>Tvoje projekty leží u tebe v počítači. Bez povinného cloudu.</p></div></div>
+        <div class="sec-item"><span class="sec-ico">👁️</span><div><h3>Vidíš, co odchází ven</h3><p>Komunikace s GitHubem a AI agentem je transparentní a vyžaduje tvůj souhlas.</p></div></div>
+        <div class="sec-item"><span class="sec-ico">⚠️</span><div><h3>Mazání s potvrzením</h3><p>Smazat projekt nejde omylem — vždy s potvrzením.</p></div></div>
+        <div class="sec-item"><span class="sec-ico">🏷️</span><div><h3>Jasné verze a changelog</h3><p>Vždy víš, jakou verzi máš a co se v ní změnilo.</p></div></div>
+      </div>
+      <p class="sec-note">Pozn.: Úplná bezpečnostní dokumentace se připravuje. Výše uvedené popisuje principy, podle kterých aplikaci stavíme.</p>
+    </section>
+
+    <!-- ===== POROVNÁNÍ ===== -->
+    <section class="section" id="porovnani">
+      <div class="section-head">
+        <span class="kicker">Porovnání</span>
+        <h2>Běžný postup vs. Project Hangar.</h2>
+      </div>
+      <div class="compare">
+        <table>
+          <thead>
+            <tr><th>Krok</th><th>Běžný postup</th><th class="col-ours">Tato aplikace</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Založení projektu</td><td>Ručně složky a soubory</td><td class="col-ours">✓ Automaticky</td></tr>
+            <tr><td>GitHub repozitář</td><td>Terminál / web GitHubu</td><td class="col-ours">✓ Jedním kliknutím</td></tr>
+            <tr><td>Live preview</td><td>Samostatný server / rozšíření</td><td class="col-ours">✓ Vestavěné</td></tr>
+            <tr><td>AI pomocník</td><td>Druhé okno, kopírování kódu</td><td class="col-ours">✓ V pravém panelu</td></tr>
+            <tr><td>Práce se soubory</td><td>Externí editor</td><td class="col-ours">✓ Přímo v aplikaci</td></tr>
+            <tr><td>Příprava k publikaci</td><td>Manuální export / deploy</td><td class="col-ours">✓ Export · deploy připravujeme</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== ROADMAPA ===== -->
+    <section class="section" id="roadmapa">
+      <div class="section-head">
+        <span class="kicker">Co bude dál</span>
+        <h2>Roadmapa.</h2>
+      </div>
+      <div class="roadmap">
+        <div class="road-item"><span class="road-dot"></span>Více šablon webů</div>
+        <div class="road-item"><span class="road-dot"></span>Přímý deployment</div>
+        <div class="road-item"><span class="road-dot"></span>Správa více projektů</div>
+        <div class="road-item"><span class="road-dot"></span>Týmová spolupráce</div>
+        <div class="road-item"><span class="road-dot"></span>Pokročilý AI agent</div>
+        <div class="road-item"><span class="road-dot"></span>Marketplace šablon</div>
+      </div>
+    </section>
+
+    <!-- ===== FAQ ===== -->
+    <section class="section" id="faq">
+      <div class="section-head">
+        <span class="kicker">FAQ</span>
+        <h2>Časté otázky.</h2>
+      </div>
+      <div class="faq" id="faqList">
+        <details><summary>Je aplikace zdarma?</summary><p>Aplikace samotná je během beta zdarma. AI agent může vyžadovat vlastní placený API klíč podle poskytovatele, kterého si zvolíš.</p></details>
+        <details><summary>Potřebuji GitHub účet?</summary><p>Pro GitHub integraci ano. Bez něj aplikaci použiješ taky — jen bez automatického zakládání repozitáře.</p></details>
+        <details><summary>Musím umět programovat?</summary><p>Nemusíš. Aplikace vytvoří základ a AI agent pomůže s úpravami. Pro pokročilé změny se znalost HTML/CSS hodí.</p></details>
+        <details><summary>Funguje aplikace offline?</summary><p>Tvorba a úpravy projektů fungují lokálně. GitHub push a AI agent potřebují připojení k internetu.</p></details>
+        <details><summary>Kam se ukládají projekty?</summary><p>Lokálně do tvého počítače. Žádný povinný cloud — data zůstávají u tebe.</p></details>
+        <details><summary>Jak se připojí AI agent?</summary><p>V nastavení zadáš API klíč zvoleného AI poskytovatele. Klíč se ukládá bezpečně, ne do kódu projektu.</p></details>
+        <details><summary>Je potřeba placený AI chatbot nebo API klíč?</summary><p>Pro funkce AI agenta ano. Aplikace nepřináší vlastní zdarma AI — napojuje se na placeného agenta dle tvé volby.</p></details>
+        <details><summary>Půjde aplikace používat i bez AI?</summary><p>Ano. Zakládání projektů, soubory, GitHub i live preview fungují i bez zapnutého AI agenta.</p></details>
+      </div>
+    </section>
+
+    <!-- ===== FINÁLNÍ CTA ===== -->
+    <section class="section final-cta">
+      <h2>Stáhni aplikaci a založ první projekt během pár minut.</h2>
+      <p>Založ projekt. Připoj GitHub. Upravuj s AI. Sleduj výsledek v live preview.</p>
+      <div class="hero-cta center">
+        <a href="#download" class="btn btn-primary btn-lg">Stáhnout aplikaci</a>
+        <a href="#jak-to-funguje" class="btn btn-ghost">Zobrazit dokumentaci</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="foot-brand">
+      <svg class="logo" viewBox="0 0 32 32" width="22" height="22" aria-hidden="true">
+        <rect width="32" height="32" rx="6" fill="#4f8cff" />
+        <path d="M5 26V16C5 7 16 7 16 7s11 0 11 9v10Z" fill="#fff" /><path d="M12.3 26v-7c0-4.8 7.4-4.8 7.4 0v7Z" fill="#4f8cff" />
+      </svg> Project Hangar
+    </div>
+    <span class="foot-meta">© 2026 Helion · v1.0.0 · Vyrobeno v Project Hangaru</span>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

@@ -82,6 +82,59 @@ export const api = {
     invoke<string>("import_file", { projectId, srcPath }),
   openFile: (id: string) => invoke<void>("open_file", { id }),
   deleteFile: (id: string) => invoke<void>("delete_file", { id }),
+  openExternalUrl: (url: string) => invoke<void>("open_external_url", { url }),
+  listFileVersions: (fileId: string) => invoke<Row[]>("list_file_versions", { fileId }),
+  restoreFileVersion: (versionId: string) =>
+    invoke<void>("restore_file_version", { versionId }),
+
+  // Sablony
+  listTemplates: () => invoke<Row[]>("list_templates"),
+  saveTemplate: (name: string, description: string, payloadJson: string) =>
+    invoke<string>("save_template", { name, description, payloadJson }),
+  deleteTemplate: (id: string) => invoke<void>("delete_template", { id }),
+  createProjectFromTemplate: (templateId: string, name: string, client?: string) =>
+    invoke<string>("create_project_from_template", { templateId, name, client }),
+
+  // Monitoring
+  listMonitors: (projectId: string) => invoke<Row[]>("list_monitors", { projectId }),
+  saveMonitor: (projectId: string, label: string, url: string, id?: string) =>
+    invoke<string>("save_monitor", { id, projectId, label, url }),
+  deleteMonitor: (id: string) => invoke<void>("delete_monitor", { id }),
+  checkMonitor: (id: string) => invoke<Row>("check_monitor", { id }),
+
+  // Export webu pro zakaznika
+  exportSite: (a: {
+    srcDir: string;
+    destZip: string;
+    projectName: string;
+    client?: string;
+    baseUrl?: string;
+    projectId?: string;
+  }) => invoke<{ files: number; bytes: number; zipPath: string }>("export_site", a),
+
+  // Cloud sync (Supabase, E2E šifrované)
+  cloudStatus: () =>
+    invoke<{
+      configured: boolean;
+      url?: string;
+      email?: string;
+      bucket: string;
+      last_synced?: string;
+    }>("cloud_status"),
+  cloudSetConfig: (c: {
+    url: string;
+    anonKey: string;
+    email: string;
+    password: string;
+    bucket?: string;
+  }) => invoke<void>("cloud_set_config", c),
+  cloudTest: () => invoke<string>("cloud_test"),
+  cloudPush: () => invoke<{ size: number; updated_at: string }>("cloud_push"),
+  cloudRemoteInfo: () =>
+    invoke<{ exists: boolean; updated_at?: string; device?: string; size?: number }>(
+      "cloud_remote_info"
+    ),
+  cloudPull: () => invoke<void>("cloud_pull"),
 
   // Weby (slozky na disku, mimo trezor). `rel` = "sites/foo" nebo "site-templates/bar".
   getSitesRoot: () => invoke<{ root: string; preview_port: number }>("get_sites_root"),
