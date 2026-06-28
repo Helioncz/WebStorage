@@ -59,13 +59,37 @@ export default function Sites() {
     e.stopPropagation();
     const ok = await confirmDialog({
       title: "Smazat web?",
-      message: `Složka „${s.slug}" a všechny její soubory budou nenávratně smazány.`,
+      message: `Složka „${s.slug}" a všechny její soubory budou smazány.`,
       confirmLabel: "Smazat web",
       danger: true,
     });
     if (!ok) return;
-    await api.deleteSite(s.rel);
+    // Propojený projekt?
+    const projectId = await api.projectForSite(s.rel).catch(() => null);
+    let alsoProject = false;
+    if (projectId) {
+      alsoProject = await confirmDialog({
+        title: "Smazat i projekt?",
+        message: `K webu patří projekt v Projektech. Potvrď = smazat i projekt, Zrušit = jen web.`,
+        confirmLabel: "Smazat i projekt",
+        danger: true,
+      });
+    }
+    const token = await api.siteTrash(s.rel).catch(() => null);
+    if (alsoProject && projectId) await api.deleteProject(projectId);
     loadAll();
+    useStore.getState().setUndo({
+      message: alsoProject ? "Web a projekt smazány" : "Web smazán",
+      restore: async () => {
+        if (token) await api.siteRestore(token);
+        if (alsoProject && projectId) await api.restoreProject(projectId);
+        loadAll();
+      },
+      commit: async () => {
+        if (token) await api.sitePurge(token);
+        if (alsoProject && projectId) await api.purgeProject(projectId);
+      },
+    });
   };
 
   if (active && !active.isTemplate) {

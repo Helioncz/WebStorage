@@ -118,10 +118,10 @@ export default function Redesign() {
       // Otevřít v Claude Code / editoru
       if (openClaude) {
         try {
-          await api.redesignOpenClaude(r.project_dir);
-          addLog("Otevřeno v Claude Code (Terminal) s vloženým promptem.");
+          const m = await api.redesignOpenClaude(r.project_dir);
+          addLog(m);
         } catch (e) {
-          addLog(`Claude Code se nepodařil: ${e}`);
+          addLog(`Otevření se nepodařilo: ${e}`);
         }
       } else if (openApp) {
         await api.redesignOpen(r.project_dir, openApp);
@@ -258,7 +258,7 @@ export default function Redesign() {
             <label><input type="checkbox" checked={addToProjects} onChange={(e) => setAddToProjects(e.target.checked)} /> Přidat do Projektů</label>
             <label><input type="checkbox" checked={initGit} onChange={(e) => setInitGit(e.target.checked)} /> Git repozitář (lokálně)</label>
             <label><input type="checkbox" checked={makeGithub} onChange={(e) => setMakeGithub(e.target.checked)} /> Založit GitHub repozitář</label>
-            <label><input type="checkbox" checked={openClaude} onChange={(e) => setOpenClaude(e.target.checked)} /> Otevřít v Claude Code s promptem</label>
+            <label><input type="checkbox" checked={openClaude} onChange={(e) => setOpenClaude(e.target.checked)} /> Otevřít v Claude + VS Code (prompt do schránky)</label>
           </div>
           {!openClaude && (
             <div className="field">

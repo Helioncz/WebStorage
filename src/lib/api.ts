@@ -138,7 +138,7 @@ export const api = {
   redesignOpen: (projectDir: string, app?: string) =>
     invoke<void>("redesign_open", { projectDir, app }),
   redesignOpenClaude: (projectDir: string) =>
-    invoke<void>("redesign_open_claude", { projectDir }),
+    invoke<string>("redesign_open_claude", { projectDir }),
   redesignGithub: (projectDir: string, name: string) =>
     invoke<string>("redesign_github", { projectDir, name }),
 

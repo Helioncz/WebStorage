@@ -2119,45 +2119,75 @@ fn redesign_open(project_dir: String, app: Option<String>) -> Result<(), String>
     }
 }
 
-/// Otevre projekt v Claude Code s uz vlozenym promptem z PROMPT_PRO_CLAUDE.md.
-/// macOS: vytvori spustitelny `.command` skript a otevre ho (Terminal ho spusti
-/// sam) — NEpotrebuje zadne "Automation" povoleni, na rozdil od osascript.
+/// Otevre projekt s promptem. Zkopiruje PROMPT_PRO_CLAUDE.md do schranky a otevre
+/// dostupny nastroj. Priorita: `claude` CLI (auto prompt) → Claude.app + VS Code
+/// (prompt ve schrance, uzivatel vlozi Cmd+V). Vraci hlasku co se stalo.
 #[tauri::command]
-fn redesign_open_claude(project_dir: String) -> Result<(), String> {
+fn redesign_open_claude(project_dir: String) -> Result<String, String> {
     let dir = PathBuf::from(&project_dir);
-    if !dir.join("PROMPT_PRO_CLAUDE.md").exists() {
+    let prompt_path = dir.join("PROMPT_PRO_CLAUDE.md");
+    if !prompt_path.exists() {
         return Err("Projekt nemá PROMPT_PRO_CLAUDE.md.".into());
     }
+    let prompt = fs::read_to_string(&prompt_path).unwrap_or_default();
+
     #[cfg(target_os = "macos")]
     {
-        let quoted_dir = format!("'{}'", project_dir.replace('\'', "'\\''"));
-        let script = format!(
-            "#!/bin/bash\n\
-             cd {quoted_dir} || exit 1\n\
-             clear\n\
-             if ! command -v claude >/dev/null 2>&1; then\n\
-             \x20 echo \"Claude Code CLI ('claude') není v PATH.\"\n\
-             \x20 echo \"Nainstaluj ho (npm i -g @anthropic-ai/claude-code), nebo otevři projekt v editoru.\"\n\
-             \x20 echo \"Prompt je v souboru PROMPT_PRO_CLAUDE.md\"\n\
-             \x20 exec \"$SHELL\"\n\
-             fi\n\
-             echo \"Spouštím Claude Code s vloženým promptem…\"\n\
-             claude \"$(cat PROMPT_PRO_CLAUDE.md)\"\n"
-        );
-        let script_path = dir.join(".launch-claude.command");
-        std::fs::write(&script_path, script).map_err(|e| format!("zápis skriptu: {e}"))?;
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| e.to_string())?;
-        tauri_plugin_opener::open_path(script_path.to_string_lossy().to_string(), None::<&str>)
-            .map_err(|e| format!("Nelze otevřít Terminal: {e}"))
+        use std::process::{Command, Stdio};
+        // 1) Prompt do schránky.
+        let mut clip_ok = false;
+        if let Ok(mut child) = Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
+            if let Some(mut si) = child.stdin.take() {
+                use std::io::Write;
+                let _ = si.write_all(prompt.as_bytes());
+            }
+            clip_ok = child.wait().map(|s| s.success()).unwrap_or(false);
+        }
+
+        // 2) Pokud existuje `claude` CLI, spusť ho přes Terminal (.command) — auto prompt.
+        let has_cli = Command::new("sh")
+            .arg("-c")
+            .arg("command -v claude")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if has_cli {
+            let quoted = format!("'{}'", project_dir.replace('\'', "'\\''"));
+            let script = format!(
+                "#!/bin/bash\ncd {quoted} || exit 1\nclear\nclaude \"$(cat PROMPT_PRO_CLAUDE.md)\"\n"
+            );
+            let sp = dir.join(".launch-claude.command");
+            fs::write(&sp, script).map_err(|e| e.to_string())?;
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&sp, fs::Permissions::from_mode(0o755));
+            let _ = tauri_plugin_opener::open_path(sp.to_string_lossy().to_string(), None::<&str>);
+            return Ok("Spouštím Claude Code (CLI) s vloženým promptem v Terminálu.".into());
+        }
+
+        // 3) Desktop appky: Claude (chat) + VS Code (soubory). Prompt je ve schránce.
+        let mut opened = Vec::new();
+        if std::path::Path::new("/Applications/Claude.app").exists() {
+            let _ = Command::new("open").arg("-a").arg("Claude").spawn();
+            opened.push("Claude");
+        }
+        if std::path::Path::new("/Applications/Visual Studio Code.app").exists() {
+            let _ = Command::new("open").arg("-a").arg("Visual Studio Code").arg(&dir).spawn();
+            opened.push("VS Code");
+        }
+        if opened.is_empty() {
+            let _ = tauri_plugin_opener::open_path(dir.to_string_lossy().to_string(), None::<&str>);
+            opened.push("složku");
+        }
+        let clip = if clip_ok { " Prompt je ve schránce — vlož ho přes Cmd+V." } else { "" };
+        Ok(format!("Otevřeno: {}.{clip}", opened.join(", ")))
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = prompt;
         std::process::Command::new("claude")
             .arg(&dir)
             .spawn()
-            .map(|_| ())
+            .map(|_| "Spuštěn Claude Code.".to_string())
             .map_err(|e| format!("Claude Code nedostupný: {e}"))
     }
 }
